@@ -31,6 +31,7 @@ cd python-playwright-discord-openai-chatbot
 
 3. Install the required dependencies using poetry:
 ```
+touch secret
 poetry install
 ```
 
