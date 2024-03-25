@@ -13,6 +13,7 @@ SESSION_FILE = os.getenv("COOKIE_FILE_NAME")
 INITIAL_SYSTEM_MESSAGE = os.getenv("INITIAL_SYSTEM_MESSAGE")
 USERNAME = os.getenv("DISCORD_EMAIL")
 PASSWORD = os.getenv("DISCORD_PASSWORD")
+BOT_NAME = os.getenv("BOT_NAME")
 
 # Configure logging
 logging.basicConfig(
@@ -70,13 +71,13 @@ class DiscordObserver:
                         if (
                             '<span class="mention wrapper_f46140 interactive"'
                             in node_str
-                            and "@Wendah</span>" in node_str
+                            and BOT_NAME + "</span>" in node_str
                         ):
                             text_parts = []
-                            start_index = node_str.find("@Wendah</span>")
+                            start_index = node_str.find(BOT_NAME + "</span>")
                             if start_index != -1:
                                 remaining_str = node_str[
-                                    start_index + len("@Wendah</span>") :
+                                    start_index + len(BOT_NAME + "</span>") :
                                 ]
                                 span_start_index = remaining_str.find("<span>")
                                 while span_start_index != -1:
