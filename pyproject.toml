@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "python-discord-bot"
+version = "0.1.0"
+description = ""
+authors = ["Kevin <kevin.roy@owasp.org>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyppeteer-stealth = "^2.7.4"
+playwright = "^1.42.0"
+requests = "^2.31.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

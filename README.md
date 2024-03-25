@@ -1,0 +1,1 @@
+run locally first to generate the cookie (discord_session.json)
