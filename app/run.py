@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from api import ChatAPI
 import time
 import re
+import time
 
 load_dotenv()
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
@@ -60,6 +61,7 @@ class DiscordObserver:
                     self.page.evaluate("window.mutations = []")
             except Exception as e:
                 logging.error(f"Error evaluating mutations: {e}")
+            time.sleep(1)
 
     def process_mutations(self, mutations):
         for mutation in mutations:
