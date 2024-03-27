@@ -29,12 +29,19 @@ class ChatAPI:
         self.url = api_url
         self.messages = [{"role": "system", "content": initial_system_message}]
         self.max_history = 30
+        self.temperature = 0.7
 
     def get_system_message(self):
         return self.messages[0]["content"] if self.messages else None
 
     def set_system_message(self, content):
         self._update_or_insert_system_message(content)
+
+    def get_temperature(self):
+        return self.temperature
+
+    def set_temperature(self, temperature):
+        self.temperature = temperature
 
     def _update_or_insert_system_message(self, content):
         if self.messages:
@@ -58,7 +65,11 @@ class ChatAPI:
             self.messages = self.messages[index:]
 
     def _send_api_request(self):
-        data = {"model": self.model_name, "messages": self.messages}
+        data = {
+            "model": self.model_name,
+            "messages": self.messages,
+            "temperature": self.temperature,  # Include temperature in the API request data
+        }
         return self.http_client.post(self.url, data)
 
     def _process_api_response(self, response):

@@ -9,9 +9,13 @@ from playwright.async_api import async_playwright
 import asyncio
 
 load_dotenv()
+BOT_NAME = os.getenv("BOT_NAME")
+MODEL_NAME = os.getenv("MODEL_NAME")
+API_URL = os.getenv("API_URL")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 SESSION_FILE = os.getenv("COOKIE_FILE_NAME")
+SYSTEM_MESSAGE = os.getenv("SYSTEM_MESSAGE")
 JAVASCRIPT_SCR = """
                 var target = document.querySelector('main[class^="chatContent"]');
                 var observer = new MutationObserver(function(mutations) {
@@ -62,7 +66,7 @@ class MessageParser:
 
     def _is_mention(self, message_soup):
         mention = message_soup.select_one('span[class*="mention"]')
-        return mention and "@Wendah" in mention.text
+        return mention and BOT_NAME in mention.text
 
     def _get_username(self, message_soup):
         username_element = message_soup.find(
@@ -158,12 +162,9 @@ class DiscordMonitor:
 
 
 class ChatAPIHandler:
-    def __init__(self, http_client, chat_api):
-        self.http_client = http_client
-        self.chat_api = chat_api
-        self.chat_api.set_system_message(
-            "You are a quirky cybersecurity professional who always answers in a humorous way. You really like Justin Trudeau."
-        )
+    def __init__(self, chat_api):
+        self.chat_api: ChatAPI = chat_api
+        self.chat_api.set_system_message(SYSTEM_MESSAGE)
 
     def handle_message(self, message_data):
         if self._is_admin(message_data["user_id"]):
@@ -176,6 +177,7 @@ class ChatAPIHandler:
 
     def send_message(self, message):
         try:
+            self.chat_api.set_temperature(1.0)
             response = self.chat_api.send_message(message)
             if response and "choices" in response and len(response["choices"]) > 0:
                 return response["choices"][0]["message"]["content"]
@@ -189,11 +191,9 @@ class ChatAPIHandler:
 
 if __name__ == "__main__":
 
-    MODEL_NAME = "openai/gpt-4-0125-preview"
-    API_URL = "https://openrouter.ai/api/v1/chat/completions"
     http_client = HttpClient(OPENROUTER_API_KEY)
     chat_api = ChatAPI(http_client, MODEL_NAME, API_URL)
-    api_handler = ChatAPIHandler(http_client, chat_api)
+    api_handler = ChatAPIHandler(chat_api)
     message_parser = MessageParser(api_handler)
     discord_monitor = DiscordMonitor(message_parser, api_handler)
     asyncio.run(discord_monitor.run())

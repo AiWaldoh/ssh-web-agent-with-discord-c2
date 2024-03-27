@@ -143,7 +143,7 @@ class MessageParser:
 
     def is_mention(self, soup):
         mention = soup.select_one('span[class*="mention"]')
-        return mention and "@Wendah" in mention.text
+        return mention and  in mention.text
 
     def get_username(self, soup):
         username_element = soup.find(
