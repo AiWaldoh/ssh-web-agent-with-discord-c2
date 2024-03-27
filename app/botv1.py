@@ -174,7 +174,7 @@ class APIHandler:
         self.http_client = HttpClient(OPENROUTER_API_KEY)
         self.chat_api = ChatAPI(self.http_client)
         self.chat_api.set_system_message(
-            "You are a quirky cybersecurity professional who always answers in a humorous way."
+            "You are a quirky cybersecurity professional who always answers in a humorous way. You really like Justin Trudeau."
         )
 
     def on_message_parsed(self, data):
