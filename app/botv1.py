@@ -10,7 +10,7 @@ import asyncio
 
 load_dotenv()
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 SESSION_FILE = os.getenv("COOKIE_FILE_NAME")
 JAVASCRIPT_SCR = """
                 var target = document.querySelector('main[class^="chatContent"]');
@@ -33,49 +33,27 @@ class DiscordMonitor:
         self.browser = None
         self.page = None
         self.message_parser = MessageParser()
-        self.api_handler = APIHandler(OPENROUTER_API_KEY)
+        self.api_handler = ChatAPIHandler(OPENROUTER_API_KEY)
 
     async def _send_discord_message(self, message):
-        print("Entering _send_discord_message")
-        print("Message:", message)
+
         if message:
-            print("Current page URL:", self.page.url)
 
-            try:
-                # Check if the page is responsive and the necessary elements are present
-                await self.page.evaluate(
-                    "document.querySelector('div[role=\"textbox\"]')"
-                )
-            except playwright._impl._api_types.Error as e:
-                print(f"Page is not responsive or in the expected state. Error: {e}")
-                print("Recreating the browser context and page.")
-                await self.context.close()
-                await self.page.close()
-                await self.login_to_discord()
-                await self.page.goto(os.getenv("DISCORD_CHANNEL_URL"))
-                await self.page.wait_for_load_state("networkidle")
-
-            print("Page HTML:")
-            print(await self.page.content())
-
-            print("Waiting for selector")
+            # await self.page.evaluate("document.querySelector('div[role=\"textbox\"]')")
             await self.page.wait_for_selector('div[role="textbox"]')
-            print("Typing message")
             await self.page.type('div[role="textbox"]', message)
             await self.page.keyboard.press("Enter")
-            print("Message sent")
         else:
             print("Empty message. Skipping sending to Discord.")
-        print("Exiting _send_discord_message")
 
     async def run(self):
         async with async_playwright() as playwright:
             await self.start_app(playwright)
-            await self._send_discord_message("sup")
+            # await self._send_discord_message("sup")
             await self.keep_alive()
 
     async def start_app(self, playwright):
-        self.browser = await playwright.chromium.launch(headless=False)
+        self.browser = await playwright.chromium.launch(headless=True)
         await self.login_to_discord()
 
         print(f"Loading {os.getenv('DISCORD_CHANNEL_URL')}")
@@ -105,24 +83,28 @@ class DiscordMonitor:
         self.page = await self.context.new_page()
 
     async def on_new_message(self, msg):
-        print("Received new message")
-        api_response = await asyncio.to_thread(
-            self.message_parser.on_message_received, msg
-        )
+        if self.message_parser.is_valid_message(msg):
 
-        if api_response:
-            print("API response:", api_response)
-            await self._send_discord_message(api_response)
-        else:
-            print("No API response received.")
+            message = await asyncio.to_thread(
+                self.message_parser.on_message_received, msg
+            )
+
+            if message:
+                print(f"Sending message to Discord: {message}")
+                await self._send_discord_message(message)
 
 
 class MessageParser:
     def __init__(self):
-        self.api_handler = APIHandler(OPENROUTER_API_KEY)
+        self.api_handler = ChatAPIHandler(OPENROUTER_API_KEY)
 
     def on_message_received(self, msg):
-        parsed_data = self.parse_message(msg)
+        soup = BeautifulSoup(msg, "html.parser")
+
+        parsed_data = self.parse_message(soup)
+        if not parsed_data["has_mention"]:
+            return
+        print(parsed_data)
         if parsed_data:
             return self.api_handler.on_message_parsed(parsed_data)
 
@@ -135,40 +117,56 @@ class MessageParser:
 
         return None
 
-    def parse_message(self, msg):
-        msg = msg.strip()
-        if msg.startswith('"<li'):
-            soup = BeautifulSoup(msg, "html.parser")
+    def is_valid_message(self, msg):
+        return msg.strip().startswith('"<li')
 
-            user_id, has_mention, message_text = self.get_message_attributes(soup)
+    def parse_message(self, soup):
 
-            return {
-                "user_id": user_id,
-                "has_mention": has_mention,
-                "message_text": message_text.strip(),
-            }
-        else:
-            return None
+        user_id, username, has_mention, message_text = self.get_message_attributes(soup)
+        return {
+            "user_id": user_id,
+            "username": username,
+            "has_mention": has_mention,
+            "message_text": message_text.strip(),
+        }
 
     def get_message_attributes(self, soup):
+        user_id = self.get_user_id(soup)
+        has_mention = self.is_mention(soup)
+        username = self.get_username(soup)
+        message_text = self.get_message(soup, has_mention)
+        return user_id, username, has_mention, message_text
+
+    def get_user_id(self, soup):
         img_src = soup.find("img")["src"] if soup.find("img") else None
-        user_id = self.extract_user_id(img_src)
+        return self.extract_user_id(img_src)
+
+    def is_mention(self, soup):
         mention = soup.select_one('span[class*="mention"]')
+        return mention and "@Wendah" in mention.text
 
-        has_mention = mention and "@Wendah" in mention.text
+    def get_username(self, soup):
+        username_element = soup.find(
+            "span", class_=lambda x: x and "username_d30d99" in x
+        )
+        if username_element:
+            return username_element.text.strip()
+        return None
 
+    def get_message(self, soup, has_mention):
         message_text = ""
         if has_mention:
-            message_spans = mention.find_next_siblings("span")
+            message_spans = soup.select_one(
+                'span[class*="mention"]'
+            ).find_next_siblings("span")
             message_text = " ".join(span.get_text() for span in message_spans)
         else:
             message_spans = soup.find_all("span")
             message_text = " ".join(span.get_text() for span in message_spans)
-        return user_id, has_mention, message_text
+        return message_text.strip()
 
 
-class APIHandler:
-    ADMIN_USER_ID = "1008186485901623386"
+class ChatAPIHandler:
 
     def __init__(self, api_key):
         self.http_client = HttpClient(OPENROUTER_API_KEY)
@@ -178,8 +176,6 @@ class APIHandler:
         )
 
     def on_message_parsed(self, data):
-        if not data["has_mention"]:
-            return
 
         if self.is_admin(data["user_id"]):
             return self.handle_admin_message(data)
@@ -187,7 +183,7 @@ class APIHandler:
             return self.handle_regular_message(data)
 
     def is_admin(self, user_id):
-        return user_id == self.ADMIN_USER_ID
+        return user_id == ADMIN_USER_ID
 
     def handle_admin_message(self, data):
         # Implement admin-specific message handling logic here
@@ -210,7 +206,8 @@ class APIHandler:
                 print("Unexpected API response format.")
                 return None
         except Exception as e:
-            print(f"Error occurred during API call: {str(e)}")
+            # print(f"Error occurred during API call: {str(e)}")
+            print(f"Error occurred during API call")
             return None
 
 

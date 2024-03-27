@@ -33,10 +33,8 @@ class ChatAPI:
 
     def send_message(self, content):
 
-        # Append the new message from the user or the assistant
         self.messages.append({"role": "user", "content": content})
 
-        # Truncate message history to the last 10 user messages
         user_messages = [msg for msg in self.messages if msg["role"] == "user"]
         if len(user_messages) > self.max_history:
             index = len(self.messages) - len(user_messages) + self.max_history
@@ -45,8 +43,6 @@ class ChatAPI:
         data = {"model": "openai/gpt-3.5-turbo-16k", "messages": self.messages}
 
         response = self.http_client.post(self.url, data)
-
-        # Add the AI's response to the conversation history if it's not the system message
 
         try:
             ai_message_content = response["choices"][0]["message"]["content"]
