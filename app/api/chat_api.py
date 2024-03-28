@@ -1,39 +1,3 @@
-import requests
-import logging
-import json
-from termcolor import colored
-
-
-def elegant_print(*args, **kwargs):
-    for arg in args:
-        if isinstance(arg, str):
-            try:
-                # Attempt to load the string as JSON
-                json_object = json.loads(arg)
-                # If successful, pretty-print the JSON string in green
-                print(colored(json.dumps(json_object, indent=2), "green"))
-            except json.JSONDecodeError:
-                # If it's not valid JSON, just print the string in blue
-                print(colored(arg, "blue"))
-        else:
-            # If the argument is not a string, print it in grey
-            print(colored(str(arg), "grey"))
-
-
-class HttpClient:
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.headers = {"Authorization": f"Bearer {self.api_key}"}
-
-    def post(self, url, data):
-        response = requests.post(url, headers=self.headers, json=data)
-        return response.json()
-
-    def get(self, url):
-        response = requests.get(url, headers=self.headers)
-        return response.json()
-
-
 class ChatAPI:
     def __init__(
         self,
