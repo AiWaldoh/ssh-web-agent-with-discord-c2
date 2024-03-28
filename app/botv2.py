@@ -240,7 +240,7 @@ class DiscordMonitor:
             return
 
         # Define the maximum message length
-        MAX_LENGTH = 2000
+        MAX_LENGTH = 1900
 
         # Function to split the message into chunks of up to MAX_LENGTH characters
         def split_message(msg):
@@ -302,11 +302,7 @@ class DiscordMonitor:
             message = await asyncio.to_thread(
                 self.message_parser.on_message_received, msg
             )
-            #
-            #
-            #
-            # do I parse function calls here?
-            # can create different functions for different messages
+
             if contains_search_result(message):
                 print(f"Received search result: {len(message)}")
                 search_result_message = await self.handle_search_result(message)
@@ -321,7 +317,9 @@ class DiscordMonitor:
     async def handle_search_result(self, search_result):
         result_message = ""
         for item in search_result:
-            result_message += f"URL: <{item.url}>\nDescription: {item.description}\n\n"
+            description = f"```{item.description}```"
+            result_message += f" <{item.url}>\n{description}\n"
+
         return result_message
 
 
@@ -335,125 +333,145 @@ class ChatAPIHandler:
     def __init__(self, chat_api):
         self.http_client = HttpClient(os.getenv("OPENROUTER_API_KEY"))
         self.chat_api: ChatAPI = chat_api
-        self.chat_api.set_system_message("you are a helpful assistant")
-        self.initialize_functions()
+        self.initialize_chat_api()
 
-    def initialize_functions(self):
+    def initialize_chat_api(self):
+        self.chat_api.set_system_message(SYSTEM_MESSAGE)
+        self.add_custom_functions()
+
+    def add_custom_functions(self):
         custom_functions = [
-            {
-                "name": "execute_command",
-                "description": "Determine if the message is asking to run a command.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "User input command.",
-                        }
-                    },
-                },
-            },
-            {
-                "name": "search_google",
-                "description": "Search for a query on Google",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "search_query": {
-                            "type": "string",
-                            "description": "The query to search on Google if user specified to search.",
-                        }
-                    },
-                    "required": ["search_query"],
-                },
-            },
-            {
-                "name": "load_website",
-                "description": "Load a website URL.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "website_url": {
-                            "type": "string",
-                            "description": "The URL of the website to load if user specified to load a website.",
-                        }
-                    },
-                    "required": ["website_url"],
-                },
-            },
+            self.create_execute_command_function(),
+            self.create_search_google_function(),
+            self.create_load_website_function(),
         ]
         for func in custom_functions:
             self.chat_api.add_function(func)
 
-    def handle_message(self, message_data):
-        if self._is_admin(message_data["user_id"]):
-            return self.send_message(message_data["message_text"])
-        else:
-            return self.send_message(message_data["message_text"])
+    def create_execute_command_function(self):
+        return {
+            "name": "execute_command",
+            "description": "Determine if the message is asking to run a command.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "User input command.",
+                    }
+                },
+            },
+        }
 
-    def _is_admin(self, user_id):
-        return user_id == "ADMIN_USER_ID"
+    def create_search_google_function(self):
+        return {
+            "name": "search_google",
+            "description": "Search for a query on Google",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_query": {
+                        "type": "string",
+                        "description": "The query to search on Google if user specified to search.",
+                    }
+                },
+                "required": ["search_query"],
+            },
+        }
+
+    def create_load_website_function(self):
+        return {
+            "name": "load_website",
+            "description": "Load a website URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "website_url": {
+                        "type": "string",
+                        "description": "The URL of the website to load if user specified to load a website.",
+                    }
+                },
+                "required": ["website_url"],
+            },
+        }
+
+    def handle_message(self, message_data):
+        user_id = message_data["user_id"]
+        message_text = message_data["message_text"]
+        return self.send_message(message_text)
 
     def send_message(self, message):
         try:
             elegant_print(message)
-            self.chat_api.set_temperature(0.3)
-            # remove text @Wendah from message
-            message = message.replace("@Wendah", "")
-            # remove empty lines at start end end of message
-            message = message.strip()
-
+            self.chat_api.set_temperature(1.3)
+            message = self.preprocess_message(message)
             response = self.chat_api.send_message(message)
-            # print("")
-            # print(response)
             elegant_print(response)
-            if isinstance(response, dict) and "name" in response:
-                return self.execute_function(response)
-            elif response and "choices" in response and len(response["choices"]) > 0:
-                return response["choices"][0]["message"]["content"]
-            else:
-                print("Unexpected API response format.")
-                return None
+            return self.process_response(response)
         except Exception as e:
             print(f"Error occurred during API call")
+            return None
+
+    def preprocess_message(self, message):
+        message = message.replace("@Wendah", "")
+        message = message.strip()
+        return message
+
+    def process_response(self, response):
+        if isinstance(response, dict) and "name" in response:
+            return self.execute_function(response)
+        elif response and "choices" in response and len(response["choices"]) > 0:
+            return response["choices"][0]["message"]["content"]
+        else:
+            print("Unexpected API response format.")
             return None
 
     def execute_function(self, function_call):
         function_name = function_call["name"]
         print(f"Executing function: {function_name}")
         elegant_print(function_call)
+
         if function_name == "search_google":
-            print("in search_google. Function call detected")
-            search_query = json.loads(function_call["arguments"])["search_query"]
-            print(f"Searching for: {search_query}")
-            results = fetch_google_search_results(search_query, 10)
-            return results
+            return self.execute_search_google(function_call)
         elif function_name == "load_website":
-            print("Loading website")
-            website_url = json.loads(function_call["arguments"])["website_url"]
-            searcher = SearchResult("title", "url", "description")
-            res = searcher.fetch_and_parse_article(website_url)
-            print(res)
-            return res["article_full_text"]
+            return self.execute_load_website(function_call)
         elif function_name == "execute_command":
-
-            command = json.loads(function_call["arguments"])["command"]
-            try:
-                BASE_URL = "http://localhost:8000"
-                data = {"command": command}
-                response = self.http_client.post(f"{BASE_URL}/execute", data)
-                output = response["output"]
-                error = response["error"]
-
-                print(f"Command: {command}")
-                print(f"Output: {output}")
-                return output
-                if error:
-                    print(f"Error: {error}")
-            except Exception as e:
-                print(f"An error occurred: {str(e)}")
+            return self.execute_command(function_call)
         else:
             return None
+
+    def execute_search_google(self, function_call):
+        print("in search_google. Function call detected")
+        search_query = json.loads(function_call["arguments"])["search_query"]
+        print(f"Searching for: {search_query}")
+        results = fetch_google_search_results(search_query, 10)
+        return results
+
+    def execute_load_website(self, function_call):
+        print("Loading website")
+        website_url = json.loads(function_call["arguments"])["website_url"]
+        searcher = SearchResult("title", "url", "description")
+        res = searcher.fetch_and_parse_article(website_url)
+        # surround res["article_full_text"] text with triple ticks to make it a code block
+        # res["article_full_text"] = f"```{res['article_full_text']}```"
+        # return only last 1900 characters of res["article_full_text"] surrounded by triple ticks
+        return f"```{res['article_full_text'][-1900:]}```"
+        # return res["article_full_text"]
+
+    def execute_command(self, function_call):
+        command = json.loads(function_call["arguments"])["command"]
+        try:
+            BASE_URL = "http://localhost:8000"
+            data = {"command": command}
+            response = self.http_client.post(f"{BASE_URL}/execute", data)
+            output = response["output"]
+            error = response["error"]
+
+            print(f"Command: {command}")
+            print(f"Output: {output}")
+            return output
+        except Exception as e:
+            print(f"An error occurred: {str(e)}")
 
 
 async def run_with_retries(discord_monitor, max_retries=5, interval=10):
