@@ -83,58 +83,6 @@ class ArticleParser:
         }
 
 
-class CustomFunction:
-    def __init__(self, chat_api):
-        self.chat_api = chat_api
-
-    def create_execute_command_function(self):
-        return {
-            "name": "execute_command",
-            "description": "Determine if the message is asking to run a command.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "User input command.",
-                    }
-                },
-            },
-        }
-
-    def create_search_google_function(self):
-        return {
-            "name": "search_google",
-            "description": "Search for a query on Google",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "search_query": {
-                        "type": "string",
-                        "description": "The query to search on Google if user specified to search.",
-                    }
-                },
-                "required": ["search_query"],
-            },
-        }
-
-    def create_load_website_function(self):
-        return {
-            "name": "load_website",
-            "description": "Load a website URL.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "website_url": {
-                        "type": "string",
-                        "description": "The URL of the website to load if user specified to load a website.",
-                    }
-                },
-                "required": ["website_url"],
-            },
-        }
-
-
 class GoogleSearcher:
     @staticmethod
     def search(query, num_results=20, limit=3):
@@ -392,12 +340,18 @@ class DiscordMonitor(BrowserAutomation):
                     await self.message_sender.send_message(self.page, message)
 
 
+def contains_search_result(lst):
+    if not isinstance(lst, list):
+        return False
+    return any(isinstance(item, SearchResult) for item in lst)
+
+
 class ChatAPIHandler:
     def __init__(self, chat_api):
         self.http_client = HttpClient(Config.OPENROUTER_API_KEY)
-        self.chat_api: ChatAPI = chat_api
+        self.chat_api = chat_api
         self.function_executor = FunctionExecutor(chat_api)
-        self.custom_functions = CustomFunction(self.chat_api)
+        self.custom_functions = CustomFunctionFactory(self.chat_api)
         self.initialize_chat_api()
 
     def initialize_chat_api(self):
@@ -405,11 +359,7 @@ class ChatAPIHandler:
         self.add_custom_functions()
 
     def add_custom_functions(self):
-        custom_functions = [
-            self.custom_functions.create_execute_command_function(),
-            self.custom_functions.create_search_google_function(),
-            self.custom_functions.create_load_website_function(),
-        ]
+        custom_functions = self.custom_functions.create_all_functions()
         for func in custom_functions:
             self.chat_api.add_function(func)
 
@@ -425,13 +375,9 @@ class ChatAPIHandler:
     def send_message(self, message):
         try:
 
-            # Printer.print_json(message)
-            self.chat_api.set_temperature(1.0)
-            message = self.preprocess_message(message)
-
-            response = self.chat_api.send_message(message)
+            preprocessed_message = self.preprocess_message(message)
+            response = self.chat_api.send_message(preprocessed_message)
             print(f"Response: {response}")
-            # Printer.print_json(response)
             return self.process_response(response)
         except Exception as e:
             print(f"Error occurred during API call: {str(e)}")
@@ -445,7 +391,7 @@ class ChatAPIHandler:
     def process_response(self, response):
         if isinstance(response, dict) and "name" in response:
             print("in isinstance")
-            return self.execute_function(response)
+            return self.function_executor.execute_function(response)
         elif response and "choices" in response and len(response["choices"]) > 0:
             print("in choices")
             return response["choices"][0]["message"]["content"]
@@ -453,58 +399,64 @@ class ChatAPIHandler:
             print("Unexpected API response format.")
             return None
 
-    def execute_command(self, function_call):
-        command = json.loads(function_call["arguments"])["command"]
-        try:
-            BASE_URL = "http://localhost:8000"
-            data = {"command": command}
-            response = self.http_client.post(f"{BASE_URL}/execute", data)
-            output = response["output"]
-            error = response["error"]
 
-            print(f"Command: {command}")
-            print(f"Output: {output}")
-            return output
-        except Exception as e:
-            print(f"An error occurred: {str(e)}")
-            return None
+class CustomFunctionFactory:
+    def __init__(self, chat_api):
+        self.chat_api = chat_api
 
-    def execute_function(self, function_call):
-        function_name = function_call["name"]
-        print(f"Executing function: {function_name}")
-        # Printer.print_json(function_call)
+    def create_all_functions(self):
+        return [
+            self.create_execute_command_function(),
+            self.create_search_google_function(),
+            self.create_load_website_function(),
+        ]
 
-        if function_name == "search_google":
-            return self.execute_search_google(function_call)
-        elif function_name == "load_website":
-            return self.execute_load_website(function_call)
-        elif function_name == "execute_command":
-            return self.execute_command(function_call)
-        else:
-            return None
+    def create_execute_command_function(self):
+        return {
+            "name": "execute_command",
+            "description": "Determine if the message is asking to run a command.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "User input command.",
+                    }
+                },
+            },
+        }
 
-    def execute_search_google(self, function_call):
-        print("in search_google. Function call detected")
-        search_query = json.loads(function_call["arguments"])["search_query"]
-        print(f"Searching for: {search_query}")
-        results = GoogleSearcher.search(search_query, 10)
-        return results
+    def create_search_google_function(self):
+        return {
+            "name": "search_google",
+            "description": "Search for a query on Google",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_query": {
+                        "type": "string",
+                        "description": "The query to search on Google if user specified to search.",
+                    }
+                },
+                "required": ["search_query"],
+            },
+        }
 
-    def execute_load_website(self, function_call):
-        print("Loading website")
-        website_url = json.loads(function_call["arguments"])["website_url"]
-        searcher = SearchResult("title", "url", "description")
-        res = searcher.fetch_and_parse_article(website_url)
-        return self.trim_by_chars(res, 1000)
-
-    def trim_by_chars(self, res, limit):
-        return f"```{res['article_full_text'][:limit]}```"
-
-
-def contains_search_result(lst):
-    if not isinstance(lst, list):
-        return False
-    return any(isinstance(item, SearchResult) for item in lst)
+    def create_load_website_function(self):
+        return {
+            "name": "load_website",
+            "description": "Load a website URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "website_url": {
+                        "type": "string",
+                        "description": "The URL of the website to load if user specified to load a website.",
+                    }
+                },
+                "required": ["website_url"],
+            },
+        }
 
 
 class FunctionExecutor:
