@@ -12,7 +12,9 @@ from newspaper import Article
 import json
 from termcolor import colored
 
+import nltk
 
+nltk.download("punkt")
 load_dotenv()
 BOT_NAME = os.getenv("BOT_NAME")
 MODEL_NAME = os.getenv("MODEL_NAME")
@@ -240,7 +242,7 @@ class DiscordMonitor:
             return
 
         # Define the maximum message length
-        MAX_LENGTH = 1900
+        MAX_LENGTH = 1800
 
         # Function to split the message into chunks of up to MAX_LENGTH characters
         def split_message(msg):
@@ -273,8 +275,10 @@ class DiscordMonitor:
 
         print(f"Loading {os.getenv('DISCORD_CHANNEL_URL')}")
         await self.page.goto(os.getenv("DISCORD_CHANNEL_URL"))
-        await self.page.wait_for_load_state("networkidle")
+        await self.page.wait_for_selector("div[role='textbox']")
+        await asyncio.sleep(5)  # Wait for 5 seconds
         await self.page.expose_function("onNewMessage", self.on_new_message)
+        # await asyncio.sleep(5)  # Wait for 5 seconds
         await self.page.evaluate(JAVASCRIPT_SCR)
 
         print("Listening for new messages...")
@@ -455,7 +459,7 @@ class ChatAPIHandler:
         # surround res["article_full_text"] text with triple ticks to make it a code block
         # res["article_full_text"] = f"```{res['article_full_text']}```"
         # return only last 1900 characters of res["article_full_text"] surrounded by triple ticks
-        return f"```{res['article_full_text'][-1900:]}```"
+        return f"```{res['article_full_text'][1000:]}```"
         # return res["article_full_text"]
 
     def execute_command(self, function_call):
