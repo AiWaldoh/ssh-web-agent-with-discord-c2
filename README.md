@@ -46,8 +46,3 @@ Contributions are welcome! If you find any issues or have suggestions for improv
 
 This project is licensed under the [MIT License](LICENSE).
 
-## Acknowledgements
-
-- [OpenAI](https://openai.com/) for providing the language model API
-- [Discord.py](https://discordpy.readthedocs.io/) for the Discord bot framework
-- [OpenRouter](https://openrouter.io/) for the API routing service

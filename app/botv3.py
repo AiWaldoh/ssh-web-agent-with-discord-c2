@@ -267,49 +267,80 @@ class MessageParser:
         return message_html.strip().startswith('"<li')
 
 
-class DiscordMonitor:
-    def __init__(self, message_parser, api_handler):
+from abc import ABC, abstractmethod
+
+
+class BrowserAutomation(ABC):
+    def __init__(self):
         self.browser = None
         self.page = None
-        self.message_parser = message_parser
-        self.api_handler = api_handler
 
-    async def _send_discord_message(self, message):
-        if not message:
-            print("Empty message. Skipping sending to Discord.")
-            return
+    @abstractmethod
+    async def start_app(self, playwright):
+        pass
 
-        message_chunks = self._split_message_into_chunks(message)
-        await self._clear_textbox()
-
-        for chunk in message_chunks:
-            await self._type_and_send_chunk(chunk)
-
-    def _split_message_into_chunks(self, message, max_length=1900):
-        return [message[i : i + max_length] for i in range(0, len(message), max_length)]
-
-    async def _clear_textbox(self):
-        await self.page.click('div[role="textbox"]', click_count=3)
-        await self.page.press('div[role="textbox"]', "Backspace")
-
-    async def _type_and_send_chunk(self, chunk):
-        lines = chunk.split("\n")
-        for i, line in enumerate(lines):
-            await self.page.type('div[role="textbox"]', line)
-            if i < len(lines) - 1:
-                await self._press_shift_enter()
-            else:
-                await self.page.keyboard.press("Enter")
-
-    async def _press_shift_enter(self):
-        await self.page.keyboard.down("Shift")
-        await self.page.keyboard.press("Enter")
-        await self.page.keyboard.up("Shift")
+    @abstractmethod
+    async def keep_alive(self):
+        pass
 
     async def run(self):
         async with async_playwright() as playwright:
             await self.start_app(playwright)
             await self.keep_alive()
+
+
+class MessageSender:
+    async def send_message(self, page, message):
+        if not message:
+            print("Empty message. Skipping sending to Discord.")
+            return
+
+        message_chunks = self._split_message_into_chunks(message)
+        await self._clear_textbox(page)
+
+        for chunk in message_chunks:
+            await self._type_and_send_chunk(page, chunk)
+
+    def _split_message_into_chunks(self, message, max_length=1900):
+        return [message[i : i + max_length] for i in range(0, len(message), max_length)]
+
+    async def _clear_textbox(self, page):
+        await page.click('div[role="textbox"]', click_count=3)
+        await page.press('div[role="textbox"]', "Backspace")
+
+    async def _type_and_send_chunk(self, page, chunk):
+        lines = chunk.split("\n")
+        for i, line in enumerate(lines):
+            await page.type('div[role="textbox"]', line)
+            if i < len(lines) - 1:
+                await self._press_shift_enter(page)
+            else:
+                await page.keyboard.press("Enter")
+
+    async def _press_shift_enter(self, page):
+        await page.keyboard.down("Shift")
+        await page.keyboard.press("Enter")
+        await page.keyboard.up("Shift")
+
+
+class SearchResultHandler:
+    def format_search_result(self, search_result):
+        result_message = ""
+        for item in search_result:
+            description = f"```{item.description}```"
+            result_message += f" <{item.url}>\n{description}\n"
+        return result_message
+
+
+class DiscordMonitor(BrowserAutomation):
+    def __init__(
+        self, message_parser, api_handler, message_sender, search_result_handler
+    ):
+        super().__init__()
+        self.message_parser = message_parser
+        self.api_handler = api_handler
+        self.message_sender = message_sender
+        self.search_result_handler = search_result_handler
 
     async def start_app(self, playwright):
         self.browser = await playwright.chromium.launch(headless=True)
@@ -350,21 +381,15 @@ class DiscordMonitor:
 
             if contains_search_result(message):
                 print(f"Received search result: {len(message)}")
-                search_result_message = await self.handle_search_result(message)
-                await self._send_discord_message(search_result_message)
+                search_result_message = self.search_result_handler.format_search_result(
+                    message
+                )
+                await self.message_sender.send_message(self.page, search_result_message)
             else:
                 if message:
                     print("Sending this message to discord")
                     Printer.print_json(message)
-                    await self._send_discord_message(message)
-
-    async def handle_search_result(self, search_result):
-        result_message = ""
-        for item in search_result:
-            description = f"```{item.description}```"
-            result_message += f" <{item.url}>\n{description}\n"
-
-        return result_message
+                    await self.message_sender.send_message(self.page, message)
 
 
 class ChatAPIHandler:
@@ -554,6 +579,10 @@ if __name__ == "__main__":
     chat_api = ChatAPI(http_client, Config.MODEL_NAME, Config.API_URL)
     api_handler = ChatAPIHandler(chat_api)
     message_parser = MessageParser(api_handler)
-    discord_monitor = DiscordMonitor(message_parser, api_handler)
+    message_sender = MessageSender()
+    search_result_handler = SearchResultHandler()
+    discord_monitor = DiscordMonitor(
+        message_parser, api_handler, message_sender, search_result_handler
+    )
 
     asyncio.run(run_with_retries(discord_monitor))
