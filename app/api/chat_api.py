@@ -77,7 +77,6 @@ class ChatAPI:
                 return response
         except KeyError:
             self._remove_last_user_message()
-            logging.error(f"Error in API response: {response}")
             return response["error"]["message"]
 
     def _add_assistant_message(self, content):
