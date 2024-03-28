@@ -9,7 +9,6 @@ import asyncio
 from requests.models import Response
 from curl_cffi import requests
 from newspaper import Article
-from OutputFormatter import OutputFormatter
 import json
 from termcolor import colored
 
@@ -192,16 +191,28 @@ class MessageParser:
         return None
 
     def _get_message(self, message_soup, has_mention):
-        message_text = ""
-        if has_mention:
-            message_spans = message_soup.select_one(
-                'span[class*="mention"]'
-            ).find_next_siblings("span")
-            message_text = " ".join(span.get_text() for span in message_spans)
+        message_div = message_soup.select_one('div[class*="markup"]')
+        if message_div:
+            message_spans = message_div.find_all("span")
+            if has_mention:
+                mention_span = message_div.select_one('span[class*="mention"]')
+                if mention_span:
+                    message_text = (
+                        mention_span.get_text()
+                        + " "
+                        + " ".join(
+                            span.get_text()
+                            for span in message_spans
+                            if span != mention_span
+                        )
+                    )
+                else:
+                    message_text = " ".join(span.get_text() for span in message_spans)
+            else:
+                message_text = " ".join(span.get_text() for span in message_spans)
+            return message_text.strip()
         else:
-            message_spans = message_soup.find_all("span")
-            message_text = " ".join(span.get_text() for span in message_spans)
-        return message_text.strip()
+            return ""
 
     def _extract_user_id(self, img_src):
         if img_src:
@@ -223,24 +234,32 @@ class DiscordMonitor:
         self.api_handler: ChatAPIHandler = api_handler
 
     async def _send_discord_message(self, message):
-        if message:
-            # Split the message by newline characters
-            lines = message.split("\n")
+        if not message:
+            print("Empty message. Skipping sending to Discord.")
+            return
 
-            # Iterate through each line in the message
+        # Define the maximum message length
+        MAX_LENGTH = 2000
+
+        # Function to split the message into chunks of up to MAX_LENGTH characters
+        def split_message(msg):
+            for i in range(0, len(msg), MAX_LENGTH):
+                yield msg[i : i + MAX_LENGTH]
+
+        # Split the message into chunks
+        message_chunks = list(split_message(message))
+
+        # Send each chunk as a separate message
+        for chunk in message_chunks:
+            lines = chunk.split("\n")
             for i, line in enumerate(lines):
-                # Type the line into the textbox
                 await self.page.type('div[role="textbox"]', line)
-                # If this is not the last line, press Shift+Enter to go to the next line
                 if i < len(lines) - 1:
                     await self.page.keyboard.down("Shift")
                     await self.page.keyboard.press("Enter")
                     await self.page.keyboard.up("Shift")
-                # If this is the last line, just press Enter to send the message
                 else:
                     await self.page.keyboard.press("Enter")
-        else:
-            print("Empty message. Skipping sending to Discord.")
 
     async def run(self):
         async with async_playwright() as playwright:
@@ -286,6 +305,7 @@ class DiscordMonitor:
             #
             #
             # do I parse function calls here?
+            # can create different functions for different messages
             if contains_search_result(message):
                 print(f"Received search result: {len(message)}")
                 search_result_message = await self.handle_search_result(message)
@@ -347,13 +367,13 @@ class ChatAPIHandler:
             },
             {
                 "name": "load_website",
-                "description": "Load a website URL and provide a summary or its content.",
+                "description": "Load a website URL.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "website_url": {
                             "type": "string",
-                            "description": "The URL of the website to load if user specified to check a website.",
+                            "description": "The URL of the website to load if user specified to load a website.",
                         }
                     },
                     "required": ["website_url"],
@@ -374,10 +394,17 @@ class ChatAPIHandler:
 
     def send_message(self, message):
         try:
-            self.chat_api.set_temperature(1.0)
+            elegant_print(message)
+            self.chat_api.set_temperature(0.3)
+            # remove text @Wendah from message
+            message = message.replace("@Wendah", "")
+            # remove empty lines at start end end of message
+            message = message.strip()
+
             response = self.chat_api.send_message(message)
             # print("")
             # print(response)
+            elegant_print(response)
             if isinstance(response, dict) and "name" in response:
                 return self.execute_function(response)
             elif response and "choices" in response and len(response["choices"]) > 0:
@@ -401,10 +428,11 @@ class ChatAPIHandler:
             return results
         elif function_name == "load_website":
             print("Loading website")
-            # website_url = json.loads(function_call["arguments"])["website_url"]
-            # searcher = SearchResult("title", "url", "description")
-            # res = searcher.fetch_and_parse_article(website_url)
-            # return res["article_full_text"]
+            website_url = json.loads(function_call["arguments"])["website_url"]
+            searcher = SearchResult("title", "url", "description")
+            res = searcher.fetch_and_parse_article(website_url)
+            print(res)
+            return res["article_full_text"]
         elif function_name == "execute_command":
             print("Executing command")
             # return function_call

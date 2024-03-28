@@ -94,6 +94,7 @@ class ChatAPI:
             "functions": self.functions,
             "function_call": "auto" if self.functions else None,
         }
+        print(data)
         return self.http_client.post(self.url, data)
 
     def _process_api_response(self, response):
@@ -101,8 +102,9 @@ class ChatAPI:
             if "function_call" in response["choices"][0]["message"]:
 
                 function_call = response["choices"][0]["message"]["function_call"]
-                function_name = function_call["name"]
-                # self._add_assistant_message(json.dumps(function_call))
+                # function_name = function_call["name"]
+                print(function_call)  # json.dumps(function_call)
+                self._add_assistant_message("OK")
                 return function_call
             else:
                 ai_message_content = response["choices"][0]["message"]["content"]
