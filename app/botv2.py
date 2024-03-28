@@ -12,6 +12,7 @@ from newspaper import Article
 import json
 from termcolor import colored
 
+
 load_dotenv()
 BOT_NAME = os.getenv("BOT_NAME")
 MODEL_NAME = os.getenv("MODEL_NAME")
@@ -332,6 +333,7 @@ def contains_search_result(lst):
 
 class ChatAPIHandler:
     def __init__(self, chat_api):
+        self.http_client = HttpClient(os.getenv("OPENROUTER_API_KEY"))
         self.chat_api: ChatAPI = chat_api
         self.chat_api.set_system_message("you are a helpful assistant")
         self.initialize_functions()
@@ -434,8 +436,22 @@ class ChatAPIHandler:
             print(res)
             return res["article_full_text"]
         elif function_name == "execute_command":
-            print("Executing command")
-            # return function_call
+
+            command = json.loads(function_call["arguments"])["command"]
+            try:
+                BASE_URL = "http://localhost:8000"
+                data = {"command": command}
+                response = self.http_client.post(f"{BASE_URL}/execute", data)
+                output = response["output"]
+                error = response["error"]
+
+                print(f"Command: {command}")
+                print(f"Output: {output}")
+                return output
+                if error:
+                    print(f"Error: {error}")
+            except Exception as e:
+                print(f"An error occurred: {str(e)}")
         else:
             return None
 
