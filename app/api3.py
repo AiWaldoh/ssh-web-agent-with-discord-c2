@@ -46,8 +46,8 @@ class ChatAPI:
         self.model_name = model_name
         self.url = api_url
         self.messages = [{"role": "system", "content": initial_system_message}]
-        self.max_history = 30
-        self.temperature = 0.7
+        self.max_history = 5
+        self.temperature = 1.0
         self.functions = []
 
     def get_system_message(self):
