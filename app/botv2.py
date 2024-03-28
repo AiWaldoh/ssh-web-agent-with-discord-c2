@@ -12,9 +12,9 @@ from newspaper import Article
 import json
 from termcolor import colored
 
-import nltk
+# import nltk
 
-nltk.download("punkt")
+# nltk.download("punkt")
 load_dotenv()
 BOT_NAME = os.getenv("BOT_NAME")
 MODEL_NAME = os.getenv("MODEL_NAME")
