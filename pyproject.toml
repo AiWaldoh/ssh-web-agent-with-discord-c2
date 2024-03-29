@@ -16,6 +16,7 @@ newspaper3k = "^0.2.8"
 termcolor = "^2.4.0"
 uvicorn = "^0.29.0"
 fastapi = "^0.110.0"
+paramiko = "^3.4.0"
 
 
 [build-system]
