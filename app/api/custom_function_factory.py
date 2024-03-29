@@ -15,13 +15,13 @@ class CustomFunctionFactory:
     def create_execute_command_function(self):
         return {
             "name": "execute_command",
-            "description": "Determine if the message is asking to run a command.",
+            "description": "Runs a linux command.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "User input command.",
+                        "description": "The command from user input.",
                     }
                 },
             },

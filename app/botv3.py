@@ -1,4 +1,3 @@
-from dotenv import load_dotenv
 import asyncio
 from api.http_client import HttpClient
 from api.chat_api import ChatAPI
@@ -10,10 +9,7 @@ from browser.discord_monitor import DiscordMonitor
 from api.chat_api_handler import ChatAPIHandler
 
 
-load_dotenv()
-
-
-async def run_with_retries(discord_monitor, max_retries=5, interval=10):
+async def run_with_retries(discord_monitor: DiscordMonitor, max_retries=5, interval=10):
     attempt = 0
     while attempt < max_retries:
         try:
@@ -30,6 +26,7 @@ async def run_with_retries(discord_monitor, max_retries=5, interval=10):
 
 
 if __name__ == "__main__":
+    print(Config.MODEL_NAME)
     http_client = HttpClient(Config.OPENROUTER_API_KEY)
     chat_api = ChatAPI(http_client, Config.MODEL_NAME, Config.API_URL)
     api_handler = ChatAPIHandler(chat_api)

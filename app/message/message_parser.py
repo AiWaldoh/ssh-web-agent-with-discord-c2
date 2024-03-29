@@ -16,6 +16,7 @@ class MessageParser:
         message_data = self._parse_message(message_soup)
 
         if message_data["has_mention"]:
+            print(f"has_mention: {message_data['has_mention']}")
             return self.api_handler.handle_message(message_data)
 
     def _parse_message(self, message_soup):

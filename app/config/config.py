@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class Config:
@@ -10,3 +13,4 @@ class Config:
     SESSION_FILE = os.getenv("COOKIE_FILE_NAME")
     SYSTEM_MESSAGE = os.getenv("SYSTEM_MESSAGE")
     DISCORD_CHANNEL_URL = os.getenv("DISCORD_CHANNEL_URL")
+    BASE_URL = os.getenv("BASE_URL")
