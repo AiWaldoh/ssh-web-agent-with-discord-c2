@@ -24,7 +24,7 @@ class HttpClient:
 
 
 class ChatAPI:
-    def __init__(self, api_key, model_name="gpt-3.5-turbo", temperature=0.7):
+    def __init__(self, api_key, model_name="gpt-3.5-turbo", temperature=1.0):
         self.api_key = api_key
         self.model_name = model_name
         self.temperature = temperature
@@ -80,55 +80,119 @@ class AITaskRegistry:
         return cls._registry.get(task_name)
 
 
+class ExecuteCommandCommand(AITaskCommand):
+    def execute(self, arguments):
+        command = arguments.get("command")
+        if command:
+            print(f"Executing command: {command}")
+            output = subprocess.check_output(
+                command, shell=True, universal_newlines=True
+            )
+            return output
+        else:
+            print("No command provided.")
+            return "No command provided."
+
+
+class SearchGoogleCommand(AITaskCommand):
+    def execute(self, arguments):
+        search_query = arguments.get("search_query")
+        if search_query:
+            print(f"Searching for: {search_query}")
+
+            return "Search results"
+        else:
+            print("No search query provided.")
+
+
+class LoadWebsiteCommand(AITaskCommand):
+    def execute(self, arguments):
+        website_url = arguments.get("website_url")
+        if website_url:
+            print(f"Loading website: {website_url}")
+
+            return "Website loaded"
+        else:
+            print("No website URL provided.")
+
+
 def load_tools_from_yaml(file_path):
     with open(file_path, "r") as file:
         tools_data = yaml.safe_load(file)
         return tools_data["tools"]
 
 
+def initialize_message_history():
+    return [{"role": "system", "content": "You are a helpful assistant."}]
+
+
+def get_user_input():
+    return input("Enter a message: ")
+
+
+def process_api_response(response, message_history):
+    if response and "choices" in response and response["choices"]:
+        choice = response["choices"][0]
+        message = choice["message"]
+        if "tool_calls" in message:
+            # print(f"message: {message}")
+            tool_calls = message["tool_calls"]
+            for tool_call in tool_calls:
+                tool_name = tool_call["function"]["name"]
+                tool_args = json.loads(tool_call["function"]["arguments"])
+                print(f"Tool call: {tool_name}")
+                command = AITaskRegistry.get_command(tool_name)
+                if command:
+                    output = command.execute(tool_args)
+                    message_history.append(
+                        {
+                            "role": "assistant",
+                            "content": f"Executed tool: {tool_name}\nExecuted command: {tool_args}\nOutput:\n{output}",
+                        }
+                    )
+                else:
+                    print("Unsupported tool call.")
+        else:
+            print("Assistant:", message["content"])
+            message_history.append(message)
+    else:
+        print("No response or no choices in the response.")
+    return message_history
+
+
+def execute_tool_calls(tool_calls, message_history):
+    for tool_call in tool_calls:
+        tool_name = tool_call["function"]["name"]
+        tool_args = json.loads(tool_call["function"]["arguments"])
+        # print(f"Tool call: {tool_name}")
+        command = AITaskRegistry.get_command(tool_name)
+        if command:
+            output = command.execute(tool_args)
+            message_history.append(
+                {
+                    "role": "assistant",
+                    "content": f"Executed tool: {tool_name}\nExecuted command: {tool_args['command']}\nOutput:\n{output}",
+                }
+            )
+        else:
+            print("Unsupported tool call.")
+    return message_history
+
+
 def main():
     api_key = os.getenv("OPENROUTER_API_KEY")
-
-    # Register AI task commands
-    AITaskRegistry.register("execute_command", ExecuteCommandTask())
-
+    AITaskRegistry.register("search_google", SearchGoogleCommand())
+    AITaskRegistry.register("load_website", LoadWebsiteCommand())
+    AITaskRegistry.register("execute_command", ExecuteCommandCommand())
+    tools = load_tools_from_yaml("tools.yaml")
     chat_api = ChatAPI(api_key=api_key)
-    message_history = [{"role": "system", "content": "You are a helpful assistant."}]
+    message_history = initialize_message_history()
+
     while True:
-        print(message_history)
-        user_input = input("Enter a message: ")
+        user_input = get_user_input()
         message_history.append({"role": "user", "content": user_input})
-        tools_file_path = "tools.yaml"
-        tools = load_tools_from_yaml(tools_file_path)
-
         response = chat_api.execute_tool_call(message_history, tools)
-
-        if response and "choices" in response and response["choices"]:
-            choice = response["choices"][0]
-            message = choice["message"]
-            if "tool_calls" in message:
-                print(f"message: {message}")
-                tool_calls = message["tool_calls"]
-                for tool_call in tool_calls:
-                    tool_name = tool_call["function"]["name"]
-                    tool_args = json.loads(tool_call["function"]["arguments"])
-                    print(f"Tool call: {tool_name}")
-                    command = AITaskRegistry.get_command(tool_name)
-                    if command:
-                        output = command.execute(tool_args)
-                        message_history.append(
-                            {
-                                "role": "assistant",
-                                "content": f"Executed tool: {tool_name}\nExecuted command: {tool_args['command']}\nOutput:\n{output}",
-                            }
-                        )
-                    else:
-                        print("Unsupported tool call.")
-            else:
-                print("Assistant:", message["content"])
-                message_history.append(message)
-        else:
-            print("No response or no choices in the response.")
+        message_history = process_api_response(response, message_history)
 
 
 if __name__ == "__main__":
