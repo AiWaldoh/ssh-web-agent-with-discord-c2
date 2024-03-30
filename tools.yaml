@@ -1,0 +1,38 @@
+tools:
+  - type: function
+    function:
+      name: execute_command
+      description: Runs a Linux command
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: The command from user input to execute.
+        required:
+          - command
+  - type: function
+    function:
+      name: search_google
+      description: Search for a query on Google
+      parameters:
+        type: object
+        properties:
+          search_query:
+            type: string
+            description: The query to search on Google if user specified to search.
+        required:
+          - search_query
+
+  - type: function
+    function:
+      name: load_website
+      description: Load a website URL.
+      parameters:
+        type: object
+        properties:
+          website_url:
+            type: string
+            description: The URL of the website to load if user specified to load a website.
+        required:
+          - website_url

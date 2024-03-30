@@ -42,7 +42,8 @@ class ChatAPIHandler:
 
     def send_message(self, message, user_id):
         try:
-
+            # add preprocess before this step to seperate concerns
+            # this layer should only be implementation of function calls
             preprocessed_message = self.preprocess_message(message)
             response = self.chat_api.send_message(preprocessed_message)
             return self.process_response(response, user_id)

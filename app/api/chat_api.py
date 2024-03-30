@@ -4,14 +4,14 @@ class ChatAPI:
         http_client,
         model_name,
         api_url,
-        initial_system_message="You are a helpful assistant.",
+        initial_system_message,
     ):
         self.http_client = http_client
         self.model_name = model_name
         self.url = api_url
         self.messages = [{"role": "system", "content": initial_system_message}]
         self.max_history = 5
-        self.temperature = 1.0
+        self.temperature = 1.1
         self.functions = []
 
     def get_system_message(self):

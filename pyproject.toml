@@ -17,6 +17,9 @@ termcolor = "^2.4.0"
 uvicorn = "^0.29.0"
 fastapi = "^0.110.0"
 paramiko = "^3.4.0"
+pytest = "^8.1.1"
+pytest-mock = "^3.14.0"
+playwright-stealth = "^1.0.6"
 
 
 [build-system]
