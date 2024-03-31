@@ -49,3 +49,12 @@ class ChatAPIService:
 
         response = self.http_client.post(url, data)
         return response
+
+
+class ResponseProcessor:
+    def process(self, api_response, max_length=1900):
+        response_text = api_response["response"]
+        return [
+            response_text[i : i + max_length]
+            for i in range(0, len(response_text), max_length)
+        ]
