@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import List
-from discord_bot import Config, DiscordBot
 
 load_dotenv()
 
@@ -220,8 +219,6 @@ class ChatApplication:
             "model_name": "gpt-3.5-turbo",
         }
         while True:
-
-            # add discord bot here
             user_input = self.user_input_handler.get_user_input()
             self.message_store.add_message(Message(role=Role.USER, content=user_input))
             response = self.chat_api_service.execute_api_call(
