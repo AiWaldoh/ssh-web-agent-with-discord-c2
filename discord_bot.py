@@ -40,6 +40,7 @@ class MessageParser:
 
     # TODO: fix parsing of message
     def _extract_message_data(self, message_soup):
+        # print(message_soup)
         user_id = self._extract_user_id(message_soup)
         has_mention = self._contains_mention(message_soup)
         username = self._extract_username(message_soup)
@@ -63,8 +64,9 @@ class MessageParser:
         return mention and mention.text.startswith("@Wendah")
 
     def _extract_username(self, message_soup):
+        print(message_soup)
         username_element = message_soup.find(
-            "span", class_=lambda x: x and "username_d30d99" in x
+            "span", class_=lambda x: x and "username" in x
         )
         if username_element:
             return username_element.text.strip()
@@ -133,7 +135,7 @@ class DiscordClient:
             await self._keep_alive()
 
     async def _launch_browser(self, playwright):
-        self.browser = await playwright.chromium.launch(headless=False)
+        self.browser = await playwright.chromium.launch(headless=True)
 
     async def _login_to_discord(self):
         session_file = os.path.join("secret", self.config.SESSION_FILE)
