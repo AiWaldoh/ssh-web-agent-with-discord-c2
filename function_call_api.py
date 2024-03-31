@@ -5,8 +5,43 @@ import yaml
 from dotenv import load_dotenv
 import subprocess
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import List
+from discord_bot import Config, DiscordBot
 
 load_dotenv()
+
+
+class Role(Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+@dataclass
+class Message:
+    role: Role
+    content: str
+
+
+class MessageStore:
+    def __init__(self, initial_system_message: str):
+        self.messages: List[Message] = [
+            Message(role=Role.SYSTEM, content=initial_system_message)
+        ]
+
+    def add_message(self, message: Message):
+        self.messages.append(message)
+
+    def get_messages(self) -> List[Message]:
+        return self.messages
+
+    def truncate_history(self, max_history: int):
+        user_messages = [msg for msg in self.messages if msg.role == Role.USER]
+        if len(user_messages) > max_history:
+            trim_index = len(self.messages) - len(user_messages) + max_history
+            self.messages = self.messages[trim_index:]
 
 
 class HttpClient:
@@ -30,14 +65,19 @@ class ChatAPIService:
         self.temperature = temperature
         self.http_client = HttpClient(api_key)
 
-    def execute_tool_call(self, messages, tools):
+    def execute_api_call(self, messages, tools, config=None):
         url = "https://openrouter.ai/api/v1/chat/completions"
         data = {
-            "messages": messages,
+            "messages": [
+                {"role": msg.role.value, "content": msg.content} for msg in messages
+            ],
             "model": self.model_name,
             "temperature": self.temperature,
             "tools": tools,
         }
+        if config:
+            data.update(config)
+
         response = self.http_client.post(url, data)
         return response
 
@@ -118,32 +158,34 @@ class UserInputHandler:
 
 
 class APIResponseProcessor:
-    def process_api_response(self, response, message_history):
+    def process_api_response(self, response, message_store):
         if response and "choices" in response and response["choices"]:
             choice = response["choices"][0]
             message = choice["message"]
             if "tool_calls" in message:
                 tool_calls = message["tool_calls"]
-                self.execute_tool_calls(tool_calls, message_history)
+                self.execute_tool_calls(tool_calls, message_store)
             else:
                 print("Assistant:", message["content"])
-                message_history.append(message)
+                message_store.add_message(
+                    Message(role=Role(message["role"]), content=message["content"])
+                )
         else:
             print("No response or no choices in the response.")
-        return message_history
+        return message_store
 
-    def execute_tool_calls(self, tool_calls, message_history):
+    def execute_tool_calls(self, tool_calls, message_store):
         for tool_call in tool_calls:
             tool_name = tool_call["function"]["name"]
             tool_args = json.loads(tool_call["function"]["arguments"])
             command = AITaskRegistry.get_command(tool_name)
             if command:
                 output = command.execute(tool_args)
-                message_history.append(
-                    {
-                        "role": "assistant",
-                        "content": f"Executed tool: {tool_name}\nExecuted command: {tool_args.get('command')}\nOutput:\n{output}",
-                    }
+                message_store.add_message(
+                    Message(
+                        role=Role.ASSISTANT,
+                        content=f"Executed tool: {tool_name}\nExecuted command: {tool_args.get('command')}\nOutput:\n{output}",
+                    )
                 )
             else:
                 print("Unsupported tool call.")
@@ -157,9 +199,9 @@ class ChatApplication:
         self.tool_loader = ToolLoader()
         self.user_input_handler = UserInputHandler()
         self.api_response_processor = APIResponseProcessor()
-        self.message_history = [
-            {"role": "system", "content": "You are a helpful assistant."}
-        ]
+        self.message_store = MessageStore(
+            initial_system_message="You are a helpful assistant."
+        )
 
     def load_tools(self, file_path):
         self.tool_loader.load_tools_from_yaml(file_path)
@@ -173,16 +215,22 @@ class ChatApplication:
 
     def run(self):
         self.load_tools("tools.yaml")
-
+        config = {
+            "temperature": 1.2,
+            "model_name": "gpt-3.5-turbo",
+        }
         while True:
+
+            # add discord bot here
             user_input = self.user_input_handler.get_user_input()
-            self.message_history.append({"role": "user", "content": user_input})
-            response = self.chat_api_service.execute_tool_call(
-                self.message_history, self.tool_loader.tools
+            self.message_store.add_message(Message(role=Role.USER, content=user_input))
+            response = self.chat_api_service.execute_api_call(
+                self.message_store.get_messages(), self.tool_loader.tools, config=config
             )
-            self.message_history = self.api_response_processor.process_api_response(
-                response, self.message_history
+            self.message_store = self.api_response_processor.process_api_response(
+                response, self.message_store
             )
+            self.message_store.truncate_history(max_history=5)
 
 
 def main():
