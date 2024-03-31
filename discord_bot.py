@@ -3,87 +3,24 @@ import re
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import requests
+import yaml
+from enum import Enum
+from dataclasses import dataclass
+from typing import List
+import subprocess
+from abc import ABC, abstractmethod
+import asyncio
+from playwright.async_api import async_playwright
+from init_function_calls import (
+    AITaskRegistry,
+    ExecuteCommandTask,
+    SearchGoogleTask,
+    LoadWebsiteTask,
+)
+from init import Config, MessageStore, Message, Role, ToolLoader, JAVASCRIPT_SCR
+from init_api import ChatAPIService
 
 load_dotenv()
-
-JAVASCRIPT_SCR = """
-                var target = document.querySelector('main[class^="chatContent"]');
-                var observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(mutation) {
-                        if (mutation.type === 'childList') {
-                            mutation.addedNodes.forEach(function(node) {
-                                window.onNewMessage(JSON.stringify(node.outerHTML));
-                            });
-                        }
-                    });
-                });
-                var config = { childList: true, subtree: true };
-                observer.observe(target, config);
-            """
-
-
-class Config:
-    BOT_NAME = os.getenv("BOT_NAME")
-    MODEL_NAME = os.getenv("MODEL_NAME")
-    API_URL = os.getenv("API_URL")
-    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-    ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-    SESSION_FILE = os.getenv("COOKIE_FILE_NAME")
-    SYSTEM_MESSAGE = os.getenv("SYSTEM_MESSAGE")
-    DISCORD_CHANNEL_URL = os.getenv("DISCORD_CHANNEL_URL")
-    BASE_URL = os.getenv("BASE_URL")
-    SSH_HOST = os.getenv("SSH_HOST")
-    SSH_PORT = int(os.getenv("SSH_PORT"))
-    SSH_USERNAME = os.getenv("SSH_USERNAME")
-    SSH_KEY_PATH = os.getenv("SSH_KEY_PATH")
-    USERNAME = os.getenv("DISCORD_EMAIL")
-    PASSWORD = os.getenv("DISCORD_PASSWORD")
-
-
-class Message:
-    def __init__(self, username, user_id, profile_url, content):
-        self.username = username
-        self.user_id = user_id
-        self.profile_url = profile_url
-        self.content = content
-
-
-class HttpClient:
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.headers = {"Authorization": f"Bearer {self.api_key}"}
-
-    def post(self, url, data):
-        try:
-            response = requests.post(url, headers=self.headers, json=data)
-            return response.json()
-        except Exception as e:
-            print(f"Error occurred during API call: {str(e)}")
-            return None
-
-
-class ChatAPIService:
-    def __init__(self, api_key, model_name="gpt-3.5-turbo", temperature=1.0):
-        self.api_key = api_key
-        self.model_name = model_name
-        self.temperature = temperature
-        self.http_client = HttpClient(api_key)
-
-    def execute_api_call(self, messages, tools, config=None):
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        data = {
-            "messages": [
-                {"role": msg.role.value, "content": msg.content} for msg in messages
-            ],
-            "model": self.model_name,
-            "temperature": self.temperature,
-            "tools": tools,
-        }
-        if config:
-            data.update(config)
-
-        response = self.http_client.post(url, data)
-        return response
 
 
 class MessageParser:
@@ -101,12 +38,15 @@ class MessageParser:
             print(f"has_mention: {message_data['has_mention']}")
             return self.api_handler.handle_message(message_data)
 
+    # TODO: fix parsing of message
     def _extract_message_data(self, message_soup):
         user_id = self._extract_user_id(message_soup)
         has_mention = self._contains_mention(message_soup)
         username = self._extract_username(message_soup)
         message_text = self._extract_message_text(message_soup, has_mention)
-
+        print(
+            f"entire dictionary return statement: {user_id}, {username}, {has_mention}, {message_text}"
+        )
         return {
             "user_id": user_id,
             "username": username,
@@ -173,10 +113,6 @@ class ResponseProcessor:
             response_text[i : i + max_length]
             for i in range(0, len(response_text), max_length)
         ]
-
-
-import asyncio
-from playwright.async_api import async_playwright
 
 
 class DiscordClient:
@@ -252,18 +188,24 @@ class DiscordClient:
             await self.browser.close()
 
     async def _on_message(self, raw_message):
-        print(f"Received message: {raw_message}")
         message = await asyncio.to_thread(
             self.message_parser.parse_message, raw_message
         )
-        print(f"Parsed message: {message}")
         if message:
-            api_response = self.api_client.execute_api_call([message], [])
-            print(f"API response: {api_response}")
+            self.message_store.add_message(
+                Message(role=Role.USER, content=message["message_text"])
+            )
+            api_response = self.api_client.execute_api_call(
+                self.message_store.get_messages(),
+                self.tool_loader.tools,
+                config=self.config,
+            )
+            self.message_store = self.response_processor.process_api_response(
+                api_response, self.message_store
+            )
+            self.message_store.truncate_history(max_history=5)
             processed_responses = self.response_processor.process(api_response)
-            print(f"Processed responses: {processed_responses}")
             for response in processed_responses:
-                print(f"Sending response: {response}")
                 await self.send_message(response)
 
     async def send_message(self, message):
@@ -281,9 +223,24 @@ class DiscordBot:
         self.discord_client = DiscordClient(
             config, self.message_parser, self.api_client, self.response_processor
         )
+        self.tool_loader = ToolLoader()
+        self.message_store = MessageStore(
+            initial_system_message="You are a helpful assistant."
+        )
 
     async def start(self):
+        self.load_tools("tools.yaml")
         await self.discord_client.start()
+
+    def load_tools(self, file_path):
+        self.tool_loader.load_tools_from_yaml(file_path)
+        for tool_data in self.tool_loader.tools:
+            tool_name = tool_data["function"]["name"]
+            tool_class_name = (
+                "".join(word.capitalize() for word in tool_name.split("_")) + "Task"
+            )
+            tool_class = globals()[tool_class_name]
+            AITaskRegistry.register(tool_name, tool_class())
 
 
 if __name__ == "__main__":
