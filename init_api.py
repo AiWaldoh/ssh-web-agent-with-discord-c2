@@ -11,6 +11,7 @@ import subprocess
 from abc import ABC, abstractmethod
 import asyncio
 from playwright.async_api import async_playwright
+import json
 
 
 class HttpClient:
@@ -47,6 +48,7 @@ class ChatAPIService:
             "tools": tools,
         }
         print(f"data: {data}")
+        # this was to update model name with the one from config or api url
         # if config:
         #     data.update(config)
         # print(f"after config")
@@ -54,12 +56,3 @@ class ChatAPIService:
         response = self.http_client.post(url, data)
         # print(f"response: {response}")
         return response
-
-
-class ResponseProcessor:
-    def process(self, api_response, max_length=1900):
-        response_text = api_response["response"]
-        return [
-            response_text[i : i + max_length]
-            for i in range(0, len(response_text), max_length)
-        ]

@@ -11,7 +11,7 @@ from init_function_calls import (
     LoadWebsiteTask,
 )
 from init import Config, MessageStore, Message, Role, ToolLoader, JAVASCRIPT_SCR
-from init_api import ChatAPIService, ResponseProcessor
+from init_api import ChatAPIService
 
 load_dotenv()
 

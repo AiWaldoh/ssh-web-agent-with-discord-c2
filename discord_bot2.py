@@ -11,7 +11,7 @@ from init_function_calls import (
     LoadWebsiteTask,
 )
 from init import Config, MessageStore, Message, Role, ToolLoader, JAVASCRIPT_SCR
-from init_api import ChatAPIService, ResponseProcessor
+from init_api import ChatAPIService
 import json
 
 load_dotenv()
@@ -83,26 +83,6 @@ class MessageExtractor:
         return None
 
 
-class MessageValidator:
-    def is_valid_message(self, message_html):
-        return message_html.strip().startswith('"<li')
-
-
-class MessageParser:
-    def __init__(
-        self, message_extractor: MessageExtractor, message_validator: MessageValidator
-    ):
-        self.message_extractor: MessageExtractor = message_extractor
-        self.message_validator: MessageValidator = message_validator
-
-    def parse_message(self, message_html):
-        if not self.message_validator.is_valid_message(message_html):
-            return None
-
-        message_soup = BeautifulSoup(message_html, "html.parser")
-        return self.message_extractor.extract_message_data(message_soup)
-
-
 class DiscordBrowser:
     def __init__(self, config: Config):
         self.config = config
@@ -157,6 +137,65 @@ class DiscordBrowser:
         await self.browser.close()
 
 
+class MessageValidator:
+    def is_valid_message(self, message_html):
+        return message_html.strip().startswith('"<li')
+
+
+class MessageParser:
+    def __init__(
+        self, message_extractor: MessageExtractor, message_validator: MessageValidator
+    ):
+        self.message_extractor = message_extractor
+        self.message_validator = message_validator
+
+    def parse_message(self, message_html):
+        if not self.message_validator.is_valid_message(message_html):
+            return None
+
+        message_soup = BeautifulSoup(message_html, "html.parser")
+        return self.message_extractor.extract_message_data(message_soup)
+
+
+class ResponseProcessor:
+    async def process(self, api_response):
+        tool_calls = self._extract_tool_calls(api_response)
+
+        if tool_calls:
+            return await self._handle_tool_calls(tool_calls)
+        else:
+            return await self._process_basic_response(api_response)
+
+    def _extract_tool_calls(self, response):
+        if response and "choices" in response and response["choices"]:
+            choice = response["choices"][0]
+            message = choice["message"]
+            if "tool_calls" in message:
+                return message["tool_calls"]
+        return None
+
+    async def _handle_tool_calls(self, tool_calls):
+        # Implement the logic to handle tool calls using the registry
+        pass
+
+    async def _process_basic_response(self, api_response):
+        response_text = api_response["choices"][0]["message"]["content"]
+        # response = await self._trim_response(response_text, max_length)
+        add_backticks = False
+        if add_backticks:
+            response = await self._add_backticks(response_text)
+        return response_text
+
+    # async def _trim_response(self, response_text, max_length):
+    #     return [
+    #         response_text[i : i + max_length]
+    #         for i in range(0, len(response_text), max_length)
+    #     ]
+
+    async def _add_backticks(self, response):
+        return f"```\n{response}\n```"
+
+
 class DiscordClient:
     def __init__(
         self,
@@ -173,7 +212,7 @@ class DiscordClient:
         self.browser: DiscordBrowser = DiscordBrowser(config)
         self.tool_loader: ToolLoader = tool_loader
         self.message_store = MessageStore(
-            initial_system_message="You are a helpful assistant."
+            initial_system_message="You are a quirky cybersecurity enthousiast. You always answer in a humorous way."
         )
 
     async def start(self):
@@ -198,128 +237,41 @@ class DiscordClient:
             self.message_parser.parse_message, raw_message
         )
         if message:
-            await self.process_message(message)
+            await self._process_message(message)
 
-    async def _post_process_response(self, response):
-        if response and "choices" in response and response["choices"]:
-            choice = response["choices"][0]
-            message = choice["message"]
-
-            # this is insecure. can make api return the word "tool_calls" and it will be executed
-            if "tool_calls" in message:
-                print(f"message: {message}")
-                # Handle tool calls
-                tool_calls = message["tool_calls"]
-                for tool_call in tool_calls:
-                    tool_name = tool_call["function"]["name"]
-                    tool_args = json.loads(tool_call["function"]["arguments"])
-                    print(f"Tool call: {tool_name}")
-                    if tool_name == "execute_command":
-                        print("Executing command...")
-
-                    else:
-                        print("Unsupported tool call.")
-            else:
-                # Handle non-tool call
-                print("Assistant:", message["content"])
-                return message["content"]
-                # message_history.append(message)
-        else:
-            print("No response or no choices in the response.")
-            return None
-
-    async def process_message(self, message):
-        print(f"message: {message}")
-        # if message["user_id"] != self.config.BOT_USER_ID:
-        #     return
-
-        if message["has_mention"]:
-            print(f"has_mention: {message['has_mention']}")
-
+    async def _process_message(self, message):
         if message["user_id"] == self.config.ADMIN_USER_ID:
-            print("Admin message")
+            if not message["has_mention"]:
+                return
             message_text = message["message_text"].replace("@Wendah", "").strip()
-            print(f"message_text: {message_text}")
-            try:
-
-                self.message_store.add_message(
-                    Message(role=Role.USER, content=message_text)
-                )
-            except Exception as e:
-                print(f"Error adding message: {e}")
-
-            api_response = self.api_client.execute_api_call(
-                self.message_store.get_messages(),
-                self.tool_loader.tools,
-                config=self.config,
-            )
-            print("-------------------- API RESPONSE -----------------------")
-            print(api_response)
-            print("-------------------- END API RESPONSE -------------------")
-            # self.message_store = self.response_processor.process(api_response)
-            processed_response = await self._post_process_response(api_response)
-            print(f"processed_response: {processed_response}")
+            self._add_user_message(message_text)
+            api_response = self._get_api_response()
+            processed_response = await self.response_processor.process(api_response)
             if processed_response:
-                print("sending response to discord")
                 await self._send_response(processed_response)
-            else:
-                print("No response to send.")
-        else:
-            print("User message")
-            # Handle different API calls based on the message content
-            if message["message_text"].startswith("!command"):
-                # Call a specific API for handling commands
-                command = message["message_text"][len("!command") :].strip()
-                api_response = self.api_client.execute_command_api_call(command)
-                await self._send_response(api_response["content"])
-            elif message["message_text"].startswith("!search"):
-                # Call a specific API for handling searches
-                query = message["message_text"][len("!search") :].strip()
-                api_response = self.api_client.execute_search_api_call(query)
-                await self._send_response(api_response["content"])
-            else:
-                print("Unknown message type")
-                # Handle regular messages without mentions
-                self.message_store.add_message(
-                    Message(role=Role.USER, content=message["message_text"])
-                )
-                api_response = self.api_client.execute_api_call(
-                    self.message_store.get_messages(),
-                    self.tool_loader.tools,
-                    config=self.config,
-                )
-                print(api_response)
-                self.message_store = self.response_processor.process_api_response(
-                    api_response, self.message_store
-                )
-                await self._send_response(api_response["content"])
+
+    def _add_user_message(self, message_text):
+        try:
+            self.message_store.add_message(
+                Message(role=Role.USER, content=message_text)
+            )
+        except Exception as e:
+            print(f"Error adding message: {e}")
+
+    def _get_api_response(self):
+        return self.api_client.execute_api_call(
+            self.message_store.get_messages(),
+            self.tool_loader.tools,
+            config=self.config,
+        )
 
     async def _send_response(self, response_text):
-        # for chunk in self._split_response(response_text):
         try:
-
             await self.browser.page.type("div[role='textbox']", response_text)
             await self.browser.page.press("div[role='textbox']", "Enter")
             await asyncio.sleep(1)
         except Exception as e:
             print(f"Error sending response: {e}")
-
-    def _split_response(self, response_text, max_length=1500):
-        words = response_text.split()
-        chunks = []
-        current_chunk = []
-
-        for word in words:
-            if len(" ".join(current_chunk + [word])) <= max_length:
-                current_chunk.append(word)
-            else:
-                chunks.append(" ".join(current_chunk))
-                current_chunk = [word]
-
-        if current_chunk:
-            chunks.append(" ".join(current_chunk))
-
-        return chunks
 
 
 class DiscordBot:
