@@ -29,6 +29,10 @@ JAVASCRIPT_SCR = """
             """
 
 
+from dataclasses import dataclass
+from enum import Enum
+
+
 class Role(Enum):
     SYSTEM = "system"
     USER = "user"

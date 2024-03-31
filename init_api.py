@@ -35,6 +35,8 @@ class ChatAPIService:
         self.http_client = HttpClient(api_key)
 
     def execute_api_call(self, messages, tools, config=None):
+
+        # print(f"all variables: {messages}, {tools}, {config}")
         url = "https://openrouter.ai/api/v1/chat/completions"
         data = {
             "messages": [
@@ -44,10 +46,13 @@ class ChatAPIService:
             "temperature": self.temperature,
             "tools": tools,
         }
-        if config:
-            data.update(config)
+        print(f"data: {data}")
+        # if config:
+        #     data.update(config)
+        # print(f"after config")
 
         response = self.http_client.post(url, data)
+        # print(f"response: {response}")
         return response
 
 
