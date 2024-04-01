@@ -17,13 +17,18 @@ import json
 load_dotenv()
 
 
+class ProcessedResponse:
+    chat_memory_response: str
+    chat_response: str
+
+
 class MessageExtractor:
     def extract_message_data(self, message_soup):
         user_id = self._extract_user_id(message_soup)
         has_mention = self._contains_mention(message_soup)
         username = self._extract_username(message_soup)
         message_text = self._extract_message_text(message_soup, has_mention)
-        print(f"return data: {user_id}, {username}, {has_mention}, {message_text}")
+        # print(f"return data: {user_id}, {username}, {has_mention}, {message_text}")
         return {
             "user_id": user_id,
             "username": username,
@@ -158,6 +163,7 @@ class MessageParser:
 
 
 class ResponseProcessor:
+
     async def process(self, api_response):
         tool_calls = self._extract_tool_calls(api_response)
 
@@ -165,6 +171,19 @@ class ResponseProcessor:
             return await self._handle_tool_calls(tool_calls)
         else:
             return await self._process_basic_response(api_response)
+
+    # related to parsing google search results
+    def handle_search_result(self, search_result):
+        result_message = ""
+        for item in search_result:
+            description = f"```{item.description}```"
+            result_message += f" <{item.url}>\n{description}\n"
+
+        return result_message
+
+    def _handle_execute_command_result(self, result):
+        # return result wrapped in triple backticks
+        return f"```{result}```"
 
     def _extract_tool_calls(self, response):
         if response and "choices" in response and response["choices"]:
@@ -175,22 +194,44 @@ class ResponseProcessor:
         return None
 
     async def _handle_tool_calls(self, tool_calls):
-        # Implement the logic to handle tool calls using the registry
-        pass
+        response = ProcessedResponse()
+        for tool_call in tool_calls:
+            tool_name = tool_call["function"]["name"]
+            tool_args = json.loads(tool_call["function"]["arguments"])
+            command = AITaskRegistry.get_command(tool_name)
+            if command:
+                output = command.execute(tool_args)
+
+                if tool_name == "search_google":
+                    output = self.handle_search_result(output)
+                    response.chat_memory_response = output
+                    response.chat_response = output
+                    return response
+                elif tool_name == "load_website":
+
+                    response.chat_memory_response = "OK"
+                    response.chat_response = output
+                    return response
+                elif tool_name == "execute_command":
+                    output = self._handle_execute_command_result(output)
+                    response.chat_memory_response = output
+                    response.chat_response = output
+                    return response
+
+                return output
+            else:
+                print("Unsupported tool call.")
 
     async def _process_basic_response(self, api_response):
         response_text = api_response["choices"][0]["message"]["content"]
-        # response = await self._trim_response(response_text, max_length)
         add_backticks = False
         if add_backticks:
             response = await self._add_backticks(response_text)
-        return response_text
 
-    # async def _trim_response(self, response_text, max_length):
-    #     return [
-    #         response_text[i : i + max_length]
-    #         for i in range(0, len(response_text), max_length)
-    #     ]
+        response = ProcessedResponse()
+        response.chat_memory_response = response_text
+        response.chat_response = response_text
+        return response
 
     async def _add_backticks(self, response):
         return f"```\n{response}\n```"
@@ -239,24 +280,48 @@ class DiscordClient:
         if message:
             await self._process_message(message)
 
-    async def _process_message(self, message):
-        if message["user_id"] == self.config.ADMIN_USER_ID:
-            if not message["has_mention"]:
-                return
-            message_text = message["message_text"].replace("@Wendah", "").strip()
-            self._add_user_message(message_text)
-            api_response = self._get_api_response()
-            processed_response = await self.response_processor.process(api_response)
-            if processed_response:
-                await self._send_response(processed_response)
-
     def _add_user_message(self, message_text):
         try:
             self.message_store.add_message(
                 Message(role=Role.USER, content=message_text)
             )
         except Exception as e:
-            print(f"Error adding message: {e}")
+            print(f"Error adding user message: {e}")
+
+    def _add_assistant_message(self, message_text):
+        try:
+            self.message_store.add_message(
+                Message(role=Role.ASSISTANT, content=message_text)
+            )
+        except Exception as e:
+            print(f"Error adding assistant message: {e}")
+
+    async def _process_message(self, message):
+
+        ###User ID
+        ###Has Mention
+        ###Message Text
+        ###Username
+
+        if message["user_id"] == self.config.ADMIN_USER_ID:
+            if not message["has_mention"]:
+                return
+            print(f"dealing with the message {message}")
+            message_text = message["message_text"].replace(Config.BOT_NAME, "").strip()
+            self._add_user_message(message_text)
+            api_response = self._get_api_response()
+
+            ###Chat Response
+            ###Chat Memory Response
+
+            processed_response: ProcessedResponse = (
+                await self.response_processor.process(api_response)
+            )
+            if processed_response.chat_response:
+                self._add_assistant_message(
+                    processed_response.chat_memory_response
+                )  # Add this line
+                await self._send_response(processed_response.chat_response)
 
     def _get_api_response(self):
         return self.api_client.execute_api_call(
@@ -265,13 +330,43 @@ class DiscordClient:
             config=self.config,
         )
 
-    async def _send_response(self, response_text):
-        try:
-            await self.browser.page.type("div[role='textbox']", response_text)
-            await self.browser.page.press("div[role='textbox']", "Enter")
-            await asyncio.sleep(1)
-        except Exception as e:
-            print(f"Error sending response: {e}")
+    async def _send_response(self, message):
+        if not message:
+            print("Empty message. Skipping sending to Discord.")
+            return
+
+        message_chunks = self._split_message_into_chunks(message)
+        await self._clear_textbox()
+
+        for chunk in message_chunks:
+            await self._type_and_send_chunk(chunk)
+
+    def _split_message_into_chunks(self, message, max_length=1900):
+        """Split the message into chunks of up to max_length characters."""
+        return [message[i : i + max_length] for i in range(0, len(message), max_length)]
+
+    async def _clear_textbox(self):
+        """Clear the textbox by selecting all text and pressing backspace."""
+        await self.browser.page.click(
+            'div[role="textbox"]', click_count=3
+        )  # Triple click to select all text
+        await self.browser.page.press('div[role="textbox"]', "Backspace")
+
+    async def _type_and_send_chunk(self, chunk):
+        """Type a chunk of text into the textbox and send it."""
+        lines = chunk.split("\n")
+        for i, line in enumerate(lines):
+            await self.browser.page.type('div[role="textbox"]', line)
+            if i < len(lines) - 1:
+                await self._press_shift_enter()
+            else:
+                await self.browser.page.keyboard.press("Enter")
+
+    async def _press_shift_enter(self):
+        """Press Shift+Enter to create a newline without sending the message."""
+        await self.browser.page.keyboard.down("Shift")
+        await self.browser.page.keyboard.press("Enter")
+        await self.browser.page.keyboard.up("Shift")
 
 
 class DiscordBot:

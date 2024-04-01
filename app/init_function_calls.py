@@ -11,6 +11,9 @@ import subprocess
 from abc import ABC, abstractmethod
 import asyncio
 from playwright.async_api import async_playwright
+import json
+from search.google_searcher import GoogleSearcher
+from search.search_result import SearchResult
 
 
 class AITaskCommand(ABC):
@@ -55,8 +58,11 @@ class SearchGoogleTask(AITaskCommand):
     def execute(self, arguments):
         search_query = arguments.get("search_query")
         if search_query:
+
             print(f"Searching for: {search_query}")
-            return "Search results"
+            results = GoogleSearcher.search(search_query, 10)
+            print(f"Search results: {results}")
+            return results
         else:
             print("No search query provided.")
             return "No search query provided."
@@ -65,9 +71,21 @@ class SearchGoogleTask(AITaskCommand):
 class LoadWebsiteTask(AITaskCommand):
     def execute(self, arguments):
         website_url = arguments.get("website_url")
+        print(f"Loading website: {website_url}")
         if website_url:
-            print(f"Loading website: {website_url}")
-            return "Website loaded"
+            searcher = SearchResult("title", website_url, "description")
+            # print(f"sending for: {website_url}")
+            res = searcher.fetch_and_parse_article()
+            print("1")
+            res = self.trim_by_chars(res, 1500)
+            print("2")
+            return res
+
         else:
             print("No website URL provided.")
             return "No website URL provided."
+
+    def trim_by_chars(self, res, limit):
+        print(res)
+        print("3")
+        return f"```{res['text'][:limit]}```\nJust click the link for more..."
