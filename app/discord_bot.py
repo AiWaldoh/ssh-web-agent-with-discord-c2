@@ -13,10 +13,12 @@ from init_function_calls import (
 from init import Config, MessageStore, Message, Role, ToolLoader, JAVASCRIPT_SCR
 from init_api import ChatAPIService
 import json
+from dataclasses import dataclass
 
 load_dotenv()
 
 
+@dataclass
 class ProcessedResponse:
     chat_memory_response: str
     chat_response: str
@@ -42,7 +44,7 @@ class MessageExtractor:
 
     def _contains_mention(self, message_soup):
         mention = message_soup.select_one('span[class*="mention"]')
-        return mention and mention.text.startswith("@Wendah")
+        return mention and mention.text.startswith(Config.BOT_NAME)
 
     def _extract_username(self, message_soup):
         username_element = message_soup.find(

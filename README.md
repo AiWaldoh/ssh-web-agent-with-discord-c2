@@ -1,6 +1,6 @@
 # Discord Chat Bot
 
-This is a Discord chat bot that uses the OpenAI API to generate responses to user messages. The bot is designed to be helpful and engaging, providing assistance and conversation to users in a Discord server.
+This is a non updated readme and a Discord chat bot that uses the OpenAI API to generate responses to user messages. The bot is designed to be helpful and engaging, providing assistance and conversation to users in a Discord server.
 
 ## Features
 
