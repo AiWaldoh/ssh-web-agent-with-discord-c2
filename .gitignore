@@ -1,6 +1,8 @@
 junk/
 secret/
 pocs/
+screenshots/
+llm_memory/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
