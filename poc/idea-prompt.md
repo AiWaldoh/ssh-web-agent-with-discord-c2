@@ -1,0 +1,2 @@
+for follow up commands, it should know the ids and classes of elements so you just need to say put xyz in login field and abc in password field.
+so you need a prompt: the following fields are on the page: login field, password field, submit button, and the page source. you need to know the ids and classes of the elements so you can just say put xyz in login field and abc in password field.

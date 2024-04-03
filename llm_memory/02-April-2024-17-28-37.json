@@ -1,0 +1,23 @@
+{
+    "https://blog.cloudflare.com/workers-ai": {
+        "forms": [
+            {
+                "action": null,
+                "method": null,
+                "inputs": [
+                    {
+                        "type": "email",
+                        "name": "email",
+                        "value": null
+                    }
+                ],
+                "buttons": [
+                    {
+                        "type": "button",
+                        "text": "Subscribe"
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,29 @@
+{
+    "https://blog.cloudflare.com/workers-ai": {
+        "forms": [
+            {
+                "id": "mktoForm_1653",
+                "class": null,
+                "action": null,
+                "method": null,
+                "inputs": [
+                    {
+                        "type": "email",
+                        "name": "email",
+                        "value": null,
+                        "id": null,
+                        "class": "top-subscribe-form-input"
+                    }
+                ],
+                "buttons": [
+                    {
+                        "type": "button",
+                        "text": "Subscribe",
+                        "id": null,
+                        "class": "top-subscribe-form-button"
+                    }
+                ]
+            }
+        ]
+    }
+}
