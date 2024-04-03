@@ -20,8 +20,8 @@ load_dotenv()
 
 @dataclass
 class ProcessedResponse:
-    chat_memory_response: str
-    chat_response: str
+    chat_memory_response: str = ""
+    chat_response: str = ""
 
 
 class MessageExtractor:
