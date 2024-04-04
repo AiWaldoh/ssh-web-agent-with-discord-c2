@@ -100,7 +100,7 @@ class DiscordBrowser:
         self.browser = await playwright.chromium.launch(headless=True)
 
     async def login(self):
-        session_file = os.path.join("secret", self.config.SESSION_FILE)
+        session_file = os.path.join("secret", Config.SESSION_FILE)
 
         if not os.path.exists("secret"):
             os.makedirs("secret")
@@ -226,9 +226,9 @@ class ResponseProcessor:
 
     async def _process_basic_response(self, api_response):
         response_text = api_response["choices"][0]["message"]["content"]
-        add_backticks = False
-        if add_backticks:
-            response = await self._add_backticks(response_text)
+        # add_backticks = False
+        # if add_backticks:
+        #     response = await self._add_backticks(response_text)
 
         response = ProcessedResponse()
         response.chat_memory_response = response_text
@@ -308,7 +308,7 @@ class DiscordClient:
         if message["user_id"] == self.config.ADMIN_USER_ID:
             if not message["has_mention"]:
                 return
-            print(f"dealing with the message {message}")
+            # print(f"dealing with the message {message}")
             message_text = message["message_text"].replace(Config.BOT_NAME, "").strip()
             self._add_user_message(message_text)
             api_response = self._get_api_response()
@@ -319,6 +319,7 @@ class DiscordClient:
             processed_response: ProcessedResponse = (
                 await self.response_processor.process(api_response)
             )
+            print(processed_response)
             if processed_response.chat_response:
                 self._add_assistant_message(
                     processed_response.chat_memory_response
@@ -336,16 +337,22 @@ class DiscordClient:
         if not message:
             print("Empty message. Skipping sending to Discord.")
             return
-
         message_chunks = self._split_message_into_chunks(message)
-        await self._clear_textbox()
+        print(f"message chunks: {message_chunks}")
+        # await self._clear_textbox()
 
         for chunk in message_chunks:
             await self._type_and_send_chunk(chunk)
 
     def _split_message_into_chunks(self, message, max_length=1900):
         """Split the message into chunks of up to max_length characters."""
-        return [message[i : i + max_length] for i in range(0, len(message), max_length)]
+        result = []
+        try:
+            result = [message[i : i + max_length] for i in range(0, len(message), max_length)]
+        except Exception as e:
+            print(f"Error splitting message: {e}")
+            return "error splitting message"
+        return result
 
     async def _clear_textbox(self):
         """Clear the textbox by selecting all text and pressing backspace."""
@@ -355,13 +362,18 @@ class DiscordClient:
         await self.browser.page.press('div[role="textbox"]', "Backspace")
 
     async def _type_and_send_chunk(self, chunk):
+        print(f"type and send chunk: {chunk}")
         """Type a chunk of text into the textbox and send it."""
+
         lines = chunk.split("\n")
+        print(f"lines: {lines}")
         for i, line in enumerate(lines):
             await self.browser.page.type('div[role="textbox"]', line)
             if i < len(lines) - 1:
+                print("press shift enter")
                 await self._press_shift_enter()
             else:
+                print("press enter")
                 await self.browser.page.keyboard.press("Enter")
 
     async def _press_shift_enter(self):
@@ -371,6 +383,8 @@ class DiscordClient:
         await self.browser.page.keyboard.up("Shift")
 
 
+# I dont think the discord bot should load the tools. if i want to have a while loop to avoir using discord to chat,
+# then I still need the tools to be loaded. the tools should be passed to the bot as a parameter.
 class DiscordBot:
     def __init__(self, config: Config):
         self.config = config

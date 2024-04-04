@@ -11,7 +11,9 @@ import subprocess
 from abc import ABC, abstractmethod
 import asyncio
 from playwright.async_api import async_playwright
-
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 JAVASCRIPT_SCR = """
                 var target = document.querySelector('main[class^="chatContent"]');
@@ -56,7 +58,7 @@ class Config:
     DISCORD_CHANNEL_URL = os.getenv("DISCORD_CHANNEL_URL")
     BASE_URL = os.getenv("BASE_URL")
     SSH_HOST = os.getenv("SSH_HOST")
-    SSH_PORT = int(os.getenv("SSH_PORT"))
+    SSH_PORT = os.getenv("SSH_PORT")
     SSH_USERNAME = os.getenv("SSH_USERNAME")
     SSH_KEY_PATH = os.getenv("SSH_KEY_PATH")
     USERNAME = os.getenv("DISCORD_EMAIL")
