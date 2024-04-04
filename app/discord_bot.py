@@ -20,8 +20,9 @@ load_dotenv()
 
 @dataclass
 class ProcessedResponse:
-    chat_memory_response: str = ""
-    chat_response: str = ""
+    def __init__(self):
+        self.chat_memory_response = ""
+        self.chat_response = ""
 
 
 class MessageExtractor:
@@ -174,19 +175,6 @@ class ResponseProcessor:
         else:
             return await self._process_basic_response(api_response)
 
-    # related to parsing google search results
-    def handle_search_result(self, search_result):
-        result_message = ""
-        for item in search_result:
-            description = f"```{item.description}```"
-            result_message += f" <{item.url}>\n{description}\n"
-
-        return result_message
-
-    def _handle_execute_command_result(self, result):
-        # return result wrapped in triple backticks
-        return f"```{result}```"
-
     def _extract_tool_calls(self, response):
         if response and "choices" in response and response["choices"]:
             choice = response["choices"][0]
@@ -203,26 +191,24 @@ class ResponseProcessor:
             command = AITaskRegistry.get_command(tool_name)
             if command:
                 output = command.execute(tool_args)
-
-                if tool_name == "search_google":
-                    output = self.handle_search_result(output)
-                    response.chat_memory_response = output
-                    response.chat_response = output
-                    return response
-                elif tool_name == "load_website":
-
-                    response.chat_memory_response = "OK"
-                    response.chat_response = output
-                    return response
-                elif tool_name == "execute_command":
-                    output = self._handle_execute_command_result(output)
-                    response.chat_memory_response = output
-                    response.chat_response = output
-                    return response
-
-                return output
+                command.process_result(output, response)
+                return response
             else:
                 print("Unsupported tool call.")
+
+    # related to parsing google search results
+    def handle_search_result(self, search_result):
+        result_message = ""
+        for item in search_result:
+            description = f"```{item.description}```"
+            result_message += f" <{item.url}>\n{description}\n"
+
+        return result_message
+
+    def _handle_execute_command_result(self, result):
+        # return result wrapped in triple backticks
+        return f"```{result}```"
+
 
     async def _process_basic_response(self, api_response):
         response_text = api_response["choices"][0]["message"]["content"]

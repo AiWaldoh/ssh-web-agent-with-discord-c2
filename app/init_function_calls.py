@@ -22,6 +22,11 @@ class AITaskCommand(ABC):
         pass
 
 
+    @abstractmethod
+    def process_result(self, result, response):
+        pass
+
+
 class AITaskRegistry:
     _instance = None
     _registry = {}
@@ -38,8 +43,6 @@ class AITaskRegistry:
     @classmethod
     def get_command(cls, task_name):
         return cls._registry.get(task_name)
-
-
 class ExecuteCommandTask(AITaskCommand):
     def execute(self, arguments):
         command = arguments.get("command")
@@ -53,12 +56,15 @@ class ExecuteCommandTask(AITaskCommand):
             print("No command provided.")
             return "No command provided."
 
+    def process_result(self, result, response):
+        output = f"```{result}```"
+        response.chat_memory_response = output
+        response.chat_response = output
 
 class SearchGoogleTask(AITaskCommand):
     def execute(self, arguments):
         search_query = arguments.get("search_query")
         if search_query:
-
             print(f"Searching for: {search_query}")
             results = GoogleSearcher.search(search_query, 10)
             print(f"Search results: {results}")
@@ -67,25 +73,33 @@ class SearchGoogleTask(AITaskCommand):
             print("No search query provided.")
             return "No search query provided."
 
+    def process_result(self, result, response):
+        result_message = ""
+        for item in result:
+            description = f"```{item.description}```"
+            result_message += f" <{item.url}>\n{description}\n"
+        response.chat_memory_response = result_message
+        response.chat_response = result_message
 
 class LoadWebsiteTask(AITaskCommand):
     def execute(self, arguments):
         website_url = arguments.get("website_url")
-        print(f"Loading website: {website_url}")
         if website_url:
+            print(f"Loading website: {website_url}")
             searcher = SearchResult("title", website_url, "description")
-            # print(f"sending for: {website_url}")
             res = searcher.fetch_and_parse_article()
-            print("1")
             res = self.trim_by_chars(res, 1500)
-            print("2")
             return res
-
         else:
             print("No website URL provided.")
             return "No website URL provided."
 
-    def trim_by_chars(self, res, limit):
-        print(res)
-        print("3")
-        return f"```{res['text'][:limit]}```\nJust click the link for more..."
+    def process_result(self, result, response):
+        response.chat_memory_response = "OK"
+        response.chat_response = result
+
+    def trim_by_chars(self, text, max_chars):
+        if len(text) <= max_chars:
+            return text
+        else:
+            return text[:max_chars] + "..."
