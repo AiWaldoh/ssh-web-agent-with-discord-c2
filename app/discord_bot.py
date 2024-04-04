@@ -25,6 +25,32 @@ class ProcessedResponse:
         self.chat_response = ""
 
 
+
+class ToolManager:
+    def __init__(self, config: Config):
+        self.config = config
+        self.message_extractor = MessageExtractor()
+        self.message_validator = MessageValidator()
+        self.message_parser = MessageParser(self.message_extractor, self.message_validator)
+        self.api_client = ChatAPIService(config.OPENROUTER_API_KEY, config.MODEL_NAME)
+        self.response_processor = ResponseProcessor()
+        self.tool_loader = ToolLoader()
+        self.load_and_register_tools("tools.yaml")
+
+    def load_and_register_tools(self, file_path):
+        self.tool_loader.load_tools_from_yaml(file_path)
+        self.register_tools()
+
+    def register_tools(self):
+        for tool_data in self.tool_loader.tools:
+            tool_name = tool_data["function"]["name"]
+            tool_class = self.get_tool_class(tool_name)
+            AITaskRegistry.register(tool_name, tool_class())
+
+    def get_tool_class(self, tool_name):
+        tool_class_name = "".join(word.capitalize() for word in tool_name.split("_")) + "Task"
+        return globals()[tool_class_name]
+
 class MessageExtractor:
     def extract_message_data(self, message_soup):
         user_id = self._extract_user_id(message_soup)
@@ -164,16 +190,18 @@ class MessageParser:
         message_soup = BeautifulSoup(message_html, "html.parser")
         return self.message_extractor.extract_message_data(message_soup)
 
-
 class ResponseProcessor:
+    def __init__(self):
+        self.tool_call_processor = ToolCallProcessor()
+        self.basic_response_processor = BasicResponseProcessor()
 
     async def process(self, api_response):
         tool_calls = self._extract_tool_calls(api_response)
 
         if tool_calls:
-            return await self._handle_tool_calls(tool_calls)
+            return await self.tool_call_processor.process(tool_calls)
         else:
-            return await self._process_basic_response(api_response)
+            return await self.basic_response_processor.process(api_response)
 
     def _extract_tool_calls(self, response):
         if response and "choices" in response and response["choices"]:
@@ -183,7 +211,9 @@ class ResponseProcessor:
                 return message["tool_calls"]
         return None
 
-    async def _handle_tool_calls(self, tool_calls):
+
+class ToolCallProcessor:
+    async def process(self, tool_calls):
         response = ProcessedResponse()
         for tool_call in tool_calls:
             tool_name = tool_call["function"]["name"]
@@ -194,37 +224,16 @@ class ResponseProcessor:
                 command.process_result(output, response)
                 return response
             else:
-                print("Unsupported tool call.")
-
-    # related to parsing google search results
-    def handle_search_result(self, search_result):
-        result_message = ""
-        for item in search_result:
-            description = f"```{item.description}```"
-            result_message += f" <{item.url}>\n{description}\n"
-
-        return result_message
-
-    def _handle_execute_command_result(self, result):
-        # return result wrapped in triple backticks
-        return f"```{result}```"
+                raise ValueError(f"Unsupported tool call: {tool_name}")
 
 
-    async def _process_basic_response(self, api_response):
+class BasicResponseProcessor:
+    async def process(self, api_response):
         response_text = api_response["choices"][0]["message"]["content"]
-        # add_backticks = False
-        # if add_backticks:
-        #     response = await self._add_backticks(response_text)
-
         response = ProcessedResponse()
         response.chat_memory_response = response_text
         response.chat_response = response_text
         return response
-
-    async def _add_backticks(self, response):
-        return f"```\n{response}\n```"
-
-
 class DiscordClient:
     def __init__(
         self,
@@ -232,14 +241,14 @@ class DiscordClient:
         message_parser: MessageParser,
         api_client: ChatAPIService,
         response_processor: ResponseProcessor,
-        tool_loader: ToolLoader,
+        tool_manager: ToolManager,
     ):
         self.config: Config = config
         self.message_parser: MessageParser = message_parser
         self.api_client: ChatAPIService = api_client
         self.response_processor: ResponseProcessor = response_processor
         self.browser: DiscordBrowser = DiscordBrowser(config)
-        self.tool_loader: ToolLoader = tool_loader
+        self.tool_manager: ToolManager = tool_manager
         self.message_store = MessageStore(
             initial_system_message="You are a quirky cybersecurity enthousiast. You always answer in a humorous way."
         )
@@ -285,37 +294,31 @@ class DiscordClient:
             print(f"Error adding assistant message: {e}")
 
     async def _process_message(self, message):
-
-        ###User ID
-        ###Has Mention
-        ###Message Text
-        ###Username
-
         if message["user_id"] == self.config.ADMIN_USER_ID:
             if not message["has_mention"]:
                 return
-            # print(f"dealing with the message {message}")
+            
             message_text = message["message_text"].replace(Config.BOT_NAME, "").strip()
+
             self._add_user_message(message_text)
+
             api_response = self._get_api_response()
-
-            ###Chat Response
-            ###Chat Memory Response
-
+            
             processed_response: ProcessedResponse = (
                 await self.response_processor.process(api_response)
             )
-            print(processed_response)
+
             if processed_response.chat_response:
                 self._add_assistant_message(
                     processed_response.chat_memory_response
-                )  # Add this line
+                ) 
+
                 await self._send_response(processed_response.chat_response)
 
     def _get_api_response(self):
         return self.api_client.execute_api_call(
             self.message_store.get_messages(),
-            self.tool_loader.tools,
+            self.tool_manager.tool_loader.tools,
             config=self.config,
         )
 
@@ -368,45 +371,20 @@ class DiscordClient:
         await self.browser.page.keyboard.press("Enter")
         await self.browser.page.keyboard.up("Shift")
 
-
-# I dont think the discord bot should load the tools. if i want to have a while loop to avoir using discord to chat,
-# then I still need the tools to be loaded. the tools should be passed to the bot as a parameter.
 class DiscordBot:
     def __init__(self, config: Config):
         self.config = config
-        message_extractor = MessageExtractor()
-        message_validator = MessageValidator()
-        self.message_parser = MessageParser(message_extractor, message_validator)
-        self.api_client = ChatAPIService(config.OPENROUTER_API_KEY, config.MODEL_NAME)
-        self.response_processor = ResponseProcessor()
-        self.tool_loader = ToolLoader()
+        self.tool_manager = ToolManager(config)
         self.discord_client = DiscordClient(
             config,
-            self.message_parser,
-            self.api_client,
-            self.response_processor,
-            self.tool_loader,
+            self.tool_manager.message_parser,
+            self.tool_manager.api_client,
+            self.tool_manager.response_processor,
+            self.tool_manager,
         )
 
     async def start(self):
-        self.load_tools("tools.yaml")
         await self.discord_client.start()
-
-    def load_tools(self, file_path):
-        self.tool_loader.load_tools_from_yaml(file_path)
-        self.register_tools()
-
-    def register_tools(self):
-        for tool_data in self.tool_loader.tools:
-            tool_name = tool_data["function"]["name"]
-            tool_class = self.get_tool_class(tool_name)
-            AITaskRegistry.register(tool_name, tool_class())
-
-    def get_tool_class(self, tool_name):
-        tool_class_name = (
-            "".join(word.capitalize() for word in tool_name.split("_")) + "Task"
-        )
-        return globals()[tool_class_name]
 
 
 if __name__ == "__main__":
