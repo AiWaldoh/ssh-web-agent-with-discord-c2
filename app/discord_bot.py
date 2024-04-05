@@ -24,8 +24,12 @@ from init import Config, MessageStore, Message, Role, ToolLoader, JAVASCRIPT_SCR
 from init_web import DiscordBrowser, MessageExtractor, MessageParser, MessageValidator
 from init_api import ChatAPIService
 import json
+from typing import Any, List,  Dict
 from dataclasses import dataclass
-
+from urllib.parse import parse_qs, urlparse
+from datetime import datetime
+from abc import ABC, abstractmethod
+from typing import Dict
 load_dotenv()
 
 
@@ -72,6 +76,7 @@ class ResponseProcessor:
         return None
 
 
+
 class ToolManager:
     def __init__(self, config: Config, task_dependencies: TaskDependencies):
         self.config = config
@@ -108,22 +113,28 @@ class ToolCallProcessor:
         self.dependencies = dependencies
 
     async def process(self, tool_calls):
-        response = ProcessedResponse()
-        for tool_call in tool_calls:
-            tool_name = tool_call["function"]["name"]
-            tool_args = json.loads(tool_call["function"]["arguments"])
-            print(f"tool name: {tool_name}")
-            command = AITaskRegistry.get_command(tool_name)
-            if command:
+        try:
 
-                # Assume all functions are browser related and require a separate tab
+            response = ProcessedResponse()
+            for tool_call in tool_calls:
+                tool_name = tool_call["function"]["name"]
+                tool_args = json.loads(tool_call["function"]["arguments"])
+                print(f"tool name: {tool_name}")
+                command = AITaskRegistry.get_command(tool_name)
+                if command:
 
-                output = await command.execute(tool_args, self.dependencies)
-                print(f"output: {output}")
-                await command.process_result(output, response)
-            else:
-                raise ValueError(f"Unsupported tool call: {tool_name}")
-        return response
+                    # Assume all functions are browser related and require a separate tab
+
+                    output = await command.execute(tool_args, self.dependencies)
+                    print(f"output: {output}")
+                    await command.process_result(output, response)
+                    return response
+                else:
+                    raise ValueError(f"Unsupported tool call: {tool_name}")
+            return response
+        except Exception as e:
+            print(f"Error processing tool calls: {e}")
+            return None
 
 
 class DiscordClient:

@@ -5,11 +5,12 @@ from bs4 import BeautifulSoup
 import asyncio
 from playwright.async_api import Page, ElementHandle
 from urllib.parse import urlparse, parse_qs
-from typing import List, Optional, Dict
+from typing import Any, List, Optional, Dict
 from playwright.async_api import (
     async_playwright,
     TimeoutError as PlaywrightTimeoutError,
 )
+from datetime import datetime
 
 
 class MessageValidator:
@@ -304,3 +305,264 @@ class MessageParser:
 
         message_soup = BeautifulSoup(message_html, "html.parser")
         return self.message_extractor.extract_message_data(message_soup)
+
+
+class PageAnalyzer:
+    def __init__(self, browser):
+        self.browser = browser
+
+    async def get_forms(self) -> List[Dict[str, Any]]:
+        forms = []
+        #belongs to custom class
+        page = await self.browser.get_additional_tab()
+        elements = await page.query_selector_all("form")
+        for element in elements:
+            form_data = {
+                "id": await element.get_attribute("id"),
+                "class": await element.get_attribute("class"),
+                "action": await element.get_attribute("action"),
+                "method": await element.get_attribute("method"),
+                "inputs": [],
+                "buttons": [],
+            }
+            input_elements = await element.query_selector_all("input, textarea, select")
+            input_data_list = await asyncio.gather(
+                *[self.get_input_data(input_element) for input_element in input_elements]
+            )
+            form_data["inputs"].extend(input_data_list)
+
+            button_elements = await element.query_selector_all("button")
+            button_data_list = await asyncio.gather(
+                *[self.get_button_data(button_element) for button_element in button_elements]
+            )
+            form_data["buttons"].extend(button_data_list)
+
+            forms.append(form_data)
+
+        return forms
+
+    async def get_input_data(self,input_element):
+        return {
+            "type": await input_element.get_attribute("type"),
+            "name": await input_element.get_attribute("name"),
+            "value": await input_element.get_attribute("value"),
+            "id": await input_element.get_attribute("id"),
+            "class": await input_element.get_attribute("class"),
+        }
+
+    async def get_button_data(self,button_element):
+        return {
+            "type": await button_element.get_attribute("type"),
+            "text": await button_element.text_content(),
+            "id": await button_element.get_attribute("id"),
+            "class": await button_element.get_attribute("class"),
+        }
+
+    def get_canonical_url(self) -> str:
+        element = self.browser.page.query_selector('link[rel="canonical"]')
+        if element:
+            return element.get_attribute("href")
+        return ""
+
+    def get_meta_robots(self) -> List[str]:
+        element = self.browser.page.query_selector('meta[name="robots"]')
+        if element:
+            content = element.get_attribute("content")
+            return content.split(",")
+        return []
+
+    def get_open_graph_data(self) -> Dict[str, str]:
+        og_data = {}
+        elements = self.browser.find_elements('meta[property^="og:"]')
+        for element in elements:
+            property_name = element.get_attribute("property")
+            content = element.get_attribute("content")
+            og_data[property_name] = content
+        return og_data
+
+    def get_page_title(self) -> str:
+        return self.browser.page.title()
+
+    def get_headings(self) -> List[Dict[str, str]]:
+        headings = []
+        for tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+            elements = self.browser.find_elements(tag)
+            for element in elements:
+                headings.append({"tag": tag, "text": element.text_content()})
+        return headings
+
+    def get_paragraphs(self) -> List[str]:
+        paragraphs = []
+        elements = self.browser.find_elements("p")
+        for element in elements:
+            paragraphs.append(element.text_content())
+        return paragraphs
+
+    def get_links(self) -> List[Dict[str, str]]:
+        links = []
+        elements = self.browser.find_elements("a")
+        for element in elements:
+            links.append(
+                {"url": element.get_attribute("href"), "text": element.text_content()}
+            )
+        return links
+
+    def get_input_fields(self) -> List[Dict[str, str]]:
+        input_fields = []
+        elements = self.browser.find_elements("input")
+        for element in elements:
+            input_fields.append(
+                {
+                    "type": element.get_attribute("type"),
+                    "name": element.get_attribute("name"),
+                }
+            )
+        return input_fields
+
+    def get_buttons(self) -> List[str]:
+        buttons = []
+        elements = self.browser.find_elements("button")
+        for element in elements:
+            buttons.append(element.text_content())
+        return buttons
+
+    def get_meta_description(self) -> str:
+        meta_element = self.browser.page.query_selector('meta[name="description"]')
+        if meta_element:
+            return meta_element.get_attribute("content")
+        return ""
+
+    def get_meta_keywords(self) -> List[str]:
+        meta_element = self.browser.page.query_selector('meta[name="keywords"]')
+        if meta_element:
+            content = meta_element.get_attribute("content")
+            return content.split(",")
+        return []
+
+    def get_page_text(self) -> str:
+        return self.browser.page.content()
+
+    def get_images(self) -> List[str]:
+        images = []
+        elements = self.browser.find_elements("img")
+        for element in elements:
+            images.append(element.get_attribute("src"))
+        return images
+
+    def get_css_classes(self) -> List[str]:
+        classes = []
+        elements = self.browser.find_elements("*")
+        for element in elements:
+            class_attr = element.get_attribute("class")
+            if class_attr:
+                classes.extend(class_attr.split())
+        return list(set(classes))
+
+    def get_css_ids(self) -> List[str]:
+        ids = []
+        elements = self.browser.find_elements("*")
+        for element in elements:
+            id_attr = element.get_attribute("id")
+            if id_attr:
+                ids.append(id_attr)
+        return list(set(ids))
+
+    def get_javascript_events(self) -> List[str]:
+        events = []
+        elements = self.browser.find_elements("*")
+        for element in elements:
+            event_handlers = element.evaluate(
+                "(el) => Object.keys(el.__proto__).filter(key => key.startsWith('on'))"
+            )
+            if event_handlers:
+                events.extend(event_handlers)
+        return list(set(events))
+
+
+import json
+
+
+class PageInfoSaver:
+    def __init__(self, base_directory="llm_memory"):
+        self.base_directory = base_directory
+        self.create_directory()
+
+    def create_directory(self):
+        if not os.path.exists(self.base_directory):
+            os.makedirs(self.base_directory)
+
+    def get_form_elements(self, form_id):
+        # Implement the logic to retrieve form elements based on the form ID
+        # You can load the JSON file and extract the relevant form information
+        pass
+
+    def save_page_info(self, url, forms):
+        timestamp = datetime.now().strftime("%d-%B-%Y-%H-%M-%S")
+        file_name = f"{timestamp}.json"
+        file_path = os.path.join(self.base_directory, file_name)
+
+        page_info = {url: {"forms": forms}}
+
+        with open(file_path, "w") as file:
+            json.dump(page_info, file, indent=4)
+
+
+class FeedbackProvider:
+    def __init__(self, page_analyzer: PageAnalyzer, page_info_saver: PageInfoSaver):
+        self.page_analyzer = page_analyzer
+        self.page_info_saver = page_info_saver
+
+    async def get_page_loaded_feedback(self, url: str, page) -> str:
+        print(f"url: {url}")
+        forms = await self.page_analyzer.get_forms()
+        print(f"forms: {forms}")
+        # self.page_info_saver.save_page_info(url, forms)
+
+        num_forms = len(forms)
+        feedback = f"Website loaded successfully. It has {num_forms} form(s).\n\n"
+
+        for form in forms:
+            form_id = form["id"]
+            feedback += f'Form with ID: "{form_id}" has the following inputs:\n'
+            for input_data in form["inputs"]:
+                input_str = ", ".join([f"{k}: {v}" for k, v in input_data.items()])
+                feedback += f"- {input_str}\n"
+
+            feedback += f'\nForm with ID: "{form_id}" has the following buttons:\n'
+            for button_data in form["buttons"]:
+                button_str = ", ".join([f"{k}: {v}" for k, v in button_data.items()])
+                feedback += f"- {button_str}\n"
+
+            feedback += "\n"  # Add a blank line between each form
+
+        return feedback
+
+    def get_page_loading_feedback(self, url: str) -> str:
+        return f"Loading page: {url}"
+
+    def get_form_details_feedback(self) -> str:
+        input_fields = self.page_analyzer.get_input_fields()
+        feedback = "Form details:\n"
+        for field in input_fields:
+            feedback += f"- Type: {field['type']}, Name: {field['name']}\n"
+        return feedback
+
+    def get_links_feedback(self) -> str:
+        links = self.page_analyzer.get_links()
+        feedback = "Links on the page:\n"
+        for link in links:
+            feedback += f"- URL: {link['url']}, Text: {link['text']}\n"
+        return feedback
+
+    def get_buttons_feedback(self) -> str:
+        buttons = self.page_analyzer.get_buttons()
+        feedback = "Buttons on the page:\n"
+        for button in buttons:
+            feedback += f"- {button}\n"
+        return feedback
+
+    def get_interaction_feedback(self, interaction_type: str, selector: str) -> str:
+        return f"{interaction_type} interaction performed on element: {selector}"
+
+    def get_error_feedback(self, error_message: str) -> str:
+        return f"Error: {error_message}"

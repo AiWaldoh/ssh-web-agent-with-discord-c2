@@ -15,7 +15,7 @@ import json
 from search.google_searcher import GoogleSearcher
 from search.search_result import SearchResult
 from datetime import datetime
-
+from init_web import PageAnalyzer, PageInfoSaver, FeedbackProvider
 
 class AITaskCommand(ABC):
     @abstractmethod
@@ -111,6 +111,9 @@ class LoadWebsiteTask(AITaskCommand):
 
 class GoToPageTask(AITaskCommand):
     async def execute(self, arguments, dependencies):
+        page_analyzer = PageAnalyzer(dependencies.browser)
+        page_info_saver = PageInfoSaver()
+        feedback_provider = FeedbackProvider(page_analyzer, page_info_saver)
         print("go to page task")
         url = arguments.get("url")
         print(f"url: {url}")
@@ -121,13 +124,12 @@ class GoToPageTask(AITaskCommand):
             await dependencies.browser.navigate_to(url, page=additional_tab)
             print("navigated to url")
             await dependencies.browser.wait_for_navigation(page=additional_tab)
-            print(f"navigated to url: {url}")
-
-            return f"Navigated to URL: {url}"
+            return await feedback_provider.get_page_loaded_feedback(url, dependencies.browser)
         else:
             return "No URL provided."
 
-    def process_result(self, result, response):
+    async def process_result(self, result, response):
+        print(f"result: {result}")
         response.chat_memory_response = result
         response.chat_response = result
 
