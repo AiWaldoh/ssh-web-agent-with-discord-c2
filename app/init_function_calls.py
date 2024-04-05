@@ -124,14 +124,15 @@ class GoToPageTask(AITaskCommand):
             await dependencies.browser.navigate_to(url, page=additional_tab)
             print("navigated to url")
             await dependencies.browser.wait_for_navigation(page=additional_tab)
-            return await feedback_provider.get_page_loaded_feedback(url, dependencies.browser)
+            return await feedback_provider.get_page_loaded_feedback(url, page=additional_tab)
         else:
             return "No URL provided."
 
     async def process_result(self, result, response):
         print(f"result: {result}")
         response.chat_memory_response = result
-        response.chat_response = result
+        # put in backticks triple backticks to make it a code block
+        response.chat_response = "```" + result + "```"
 
 
 class TakeScreenshotTask(AITaskCommand):

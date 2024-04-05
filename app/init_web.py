@@ -26,7 +26,7 @@ class DiscordBrowser:
         self.additional_tab = None
 
     async def launch(self, playwright):
-        self.browser = await playwright.chromium.launch(headless=False)
+        self.browser = await playwright.chromium.launch(headless=True)
 
     async def login(self):
         session_file = os.path.join("secret", Config.SESSION_FILE)
@@ -307,57 +307,98 @@ class MessageParser:
         return self.message_extractor.extract_message_data(message_soup)
 
 
+from abc import ABC, abstractmethod
+from typing import Dict, Any, List
+
+class FormElementHandler(ABC):
+    @abstractmethod
+    async def handle(self, element) -> Dict[str, Any]:
+        pass
+
+class InputFieldHandler(FormElementHandler):
+    async def handle(self, element) -> Dict[str, Any]:
+        return {
+            "type": await element.get_attribute("type"),
+            "name": await element.get_attribute("name"),
+            "id": await element.get_attribute("id"),
+            "class": await element.get_attribute("class"),
+            "placeholder": await element.get_attribute("placeholder"),
+            "label": await self.get_associated_label(element)
+        }
+
+    async def get_associated_label(self, element):
+        label_element = await element.query_selector("xpath=preceding-sibling::label[1]")
+        if label_element:
+            return await label_element.inner_text()
+        return None
+
+class ButtonHandler(FormElementHandler):
+    async def handle(self, element) -> Dict[str, Any]:
+        return {
+            "type": await element.get_attribute("type"),
+            "name": await element.get_attribute("name"),
+            "id": await element.get_attribute("id"),
+            "class": await element.get_attribute("class"),
+            "value": await element.get_attribute("value"),
+            "label": await self.get_button_label(element)
+        }
+
+    async def get_button_label(self, button):
+        if await button.get_attribute("value"):
+            return await button.get_attribute("value")
+        return await button.inner_text()
+
+class SelectHandler(FormElementHandler):
+    async def handle(self, element) -> Dict[str, Any]:
+        return {
+            "name": await element.get_attribute("name"),
+            "id": await element.get_attribute("id"),
+            "class": await element.get_attribute("class"),
+            "label": await self.get_associated_label(element),
+            "options": await self.get_select_options(element)
+        }
+
+    async def get_associated_label(self, element):
+        label_element = await element.query_selector("xpath=preceding-sibling::label[1]")
+        if label_element:
+            return await label_element.inner_text()
+        return None
+
+    async def get_select_options(self, select):
+        options = await select.query_selector_all("option")
+        return [await option.get_attribute("value") for option in options]
+
 class PageAnalyzer:
     def __init__(self, browser):
         self.browser = browser
+        self.element_handlers = {
+            "input": InputFieldHandler(),
+            "button": ButtonHandler(),
+            "select": SelectHandler()
+        }
 
     async def get_forms(self) -> List[Dict[str, Any]]:
         forms = []
-        #belongs to custom class
         page = await self.browser.get_additional_tab()
         elements = await page.query_selector_all("form")
         for element in elements:
             form_data = {
                 "id": await element.get_attribute("id"),
-                "class": await element.get_attribute("class"),
+                "name": await element.get_attribute("name"),
                 "action": await element.get_attribute("action"),
                 "method": await element.get_attribute("method"),
-                "inputs": [],
-                "buttons": [],
+                "elements": []
             }
-            input_elements = await element.query_selector_all("input, textarea, select")
-            input_data_list = await asyncio.gather(
-                *[self.get_input_data(input_element) for input_element in input_elements]
-            )
-            form_data["inputs"].extend(input_data_list)
 
-            button_elements = await element.query_selector_all("button")
-            button_data_list = await asyncio.gather(
-                *[self.get_button_data(button_element) for button_element in button_elements]
-            )
-            form_data["buttons"].extend(button_data_list)
+            for element_type, handler in self.element_handlers.items():
+                elements = await element.query_selector_all(element_type)
+                for element in elements:
+                    element_data = await handler.handle(element)
+                    form_data["elements"].append(element_data)
 
             forms.append(form_data)
 
         return forms
-
-    async def get_input_data(self,input_element):
-        return {
-            "type": await input_element.get_attribute("type"),
-            "name": await input_element.get_attribute("name"),
-            "value": await input_element.get_attribute("value"),
-            "id": await input_element.get_attribute("id"),
-            "class": await input_element.get_attribute("class"),
-        }
-
-    async def get_button_data(self,button_element):
-        return {
-            "type": await button_element.get_attribute("type"),
-            "text": await button_element.text_content(),
-            "id": await button_element.get_attribute("id"),
-            "class": await button_element.get_attribute("class"),
-        }
-
     def get_canonical_url(self) -> str:
         element = self.browser.page.query_selector('link[rel="canonical"]')
         if element:
@@ -521,19 +562,39 @@ class FeedbackProvider:
         num_forms = len(forms)
         feedback = f"Website loaded successfully. It has {num_forms} form(s).\n\n"
 
-        for form in forms:
-            form_id = form["id"]
-            feedback += f'Form with ID: "{form_id}" has the following inputs:\n'
-            for input_data in form["inputs"]:
-                input_str = ", ".join([f"{k}: {v}" for k, v in input_data.items()])
-                feedback += f"- {input_str}\n"
+        for index, form in enumerate(forms, start=1):
+            form_id = form.get("id", "N/A")
+            form_name = form.get("name", "N/A")
+            form_action = form.get("action", "N/A")
+            form_method = form.get("method", "GET")
+            num_elements = len(form["elements"])
 
-            feedback += f'\nForm with ID: "{form_id}" has the following buttons:\n'
-            for button_data in form["buttons"]:
-                button_str = ", ".join([f"{k}: {v}" for k, v in button_data.items()])
-                feedback += f"- {button_str}\n"
+            feedback += f"Form {index}:\n"
+            feedback += f"  ID: {form_id}\n"
+            feedback += f"  Name: {form_name}\n"
+            feedback += f"  Action: {form_action}\n"
+            feedback += f"  Method: {form_method}\n"
+            feedback += f"  Number of Elements: {num_elements}\n"
 
-            feedback += "\n"  # Add a blank line between each form
+            feedback += "  Elements:\n"
+            for element in form["elements"]:
+                element_type = element.get("type", "N/A")
+                element_name = element.get("name", "N/A")
+                element_id = element.get("id", "N/A")
+                element_class = element.get("class", "N/A")
+                element_label = element.get("label", "N/A")
+
+                feedback += f"    - Type: {element_type}\n"
+                feedback += f"      Name: {element_name}\n"
+                feedback += f"      ID: {element_id}\n"
+                feedback += f"      Class: {element_class}\n"
+                feedback += f"      Label: {element_label}\n"
+
+                if element_type == "select":
+                    options = element.get("options", [])
+                    feedback += f"      Options: {', '.join(options)}\n"
+
+            feedback += "\n"
 
         return feedback
 
