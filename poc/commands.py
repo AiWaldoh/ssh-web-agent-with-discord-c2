@@ -203,7 +203,6 @@ class PageAnalyzer:
 
         return forms
 
-    ################################################################################
     def get_canonical_url(self) -> str:
         element = self.browser.page.query_selector('link[rel="canonical"]')
         if element:
@@ -226,7 +225,6 @@ class PageAnalyzer:
             og_data[property_name] = content
         return og_data
 
-    ################################################################################
     def get_page_title(self) -> str:
         return self.browser.page.title()
 
@@ -444,7 +442,7 @@ class GoToPageTask(AITaskCommand):
         if url:
             self.browser.navigate_to(url)
             self.browser.wait_for_navigation()
-            return self.feedback_provider.get_page_loaded_feedback(url)
+            return self.feedback_provider.get_page_loaded_feedback(url, self.browser.page)
         else:
             return "No URL provided."
 
